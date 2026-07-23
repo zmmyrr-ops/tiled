@@ -530,6 +530,10 @@ MainWindow::MainWindow(QWidget *parent, Qt::WindowFlags flags)
     ActionManager::registerMenu(mNewLayerMenu, "NewLayer");
     ActionManager::registerMenu(mGroupLayerMenu, "GroupLayer");
 
+    mGhostToolsMenu = new QMenu(tr("猛鬼工具集"), this);
+    menuBar()->insertMenu(mUi->menuHelp->menuAction(), mGhostToolsMenu);
+    ActionManager::registerMenu(mGhostToolsMenu, "GhostTools");
+
     connect(mUi->actionNewMap, &QAction::triggered, this, &MainWindow::newMap);
     connect(mUi->actionNewTileset, &QAction::triggered, this, [this] { newTileset(); });
     connect(mUi->actionOpen, &QAction::triggered, this, &MainWindow::openFileDialog);
