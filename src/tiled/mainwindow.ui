@@ -290,7 +290,7 @@
      <normaloff>:/images/16/help-about.png</normaloff>:/images/16/help-about.png</iconset>
    </property>
    <property name="text">
-    <string>&amp;About Tiled</string>
+    <string>&amp;About tiled-比心专用版</string>
    </property>
    <property name="menuRole">
     <enum>QAction::MenuRole::AboutRole</enum>
