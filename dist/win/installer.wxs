@@ -132,6 +132,14 @@
             </ProgId>
           </Component>
 
+          <Directory Id="ExtensionsDir" Name="extensions">
+            <Directory Id="GhostToolsDir" Name="ghost-tools">
+              <Component Id="GhostToolsExtension" Guid="{A3E8F1C2-9D4B-4E7A-B6C5-1F2D3E4A5B6C}">
+                <File Source="$(var.InstallRoot)\extensions\ghost-tools\ghost-tools.js" KeyPath="yes" />
+              </Component>
+            </Directory>
+          </Directory>
+
           <Directory Id="dir83A7B7C3F39E24970C38654C9B6F4A12" Name="plugins">
             <Directory Id="dirED990048BCB522432182867E2817CD9B" Name="tiled">
               <Component Id="Plugins" Guid="{11ACEE38-A936-4FF4-BD8C-D1475D5454D1}">
@@ -411,6 +419,7 @@
 
     <Feature Id='Complete' Level='1' Title="Tiled" Description="The complete package." ConfigurableDirectory='INSTALLDIR' AllowAdvertise='no' Absent='disallow'>
       <ComponentRef Id='MainExecutable' />
+      <ComponentRef Id='GhostToolsExtension' />
       <ComponentRef Id='DesktopShortcut' />
       <ComponentRef Id='Plugins' />
       <ComponentRef Id='Translations' />

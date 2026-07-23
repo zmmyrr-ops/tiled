@@ -82,6 +82,23 @@ TiledQtGuiApplication {
     }
 
     Group {
+        name: "Bundled scripting extensions"
+        prefix: "../tiled/extensions/"
+        files: ["**"]
+
+        qbs.install: true
+        qbs.installSourceBase: prefix
+        qbs.installDir: {
+            if (project.windowsLayout)
+                return "extensions"
+            else if (qbs.targetOS.contains("darwin"))
+                return "Tiled.app/Contents/Resources/extensions"
+            else
+                return "share/tiled/extensions"
+        }
+    }
+
+    Group {
         name: "macOS (Info.plist and icons)"
         condition: qbs.targetOS.contains("macos")
         files: [

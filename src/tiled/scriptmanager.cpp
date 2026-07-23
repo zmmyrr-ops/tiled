@@ -70,6 +70,28 @@ namespace Tiled {
 
 static Preference<QStringList> scriptingEnabledProjects { "Scripting/EnabledProjects" };
 
+static QString bundledExtensionsPath()
+{
+    const QDir appDir(QCoreApplication::applicationDirPath());
+
+#if defined(Q_OS_MACOS)
+    const QString path = appDir.filePath(QStringLiteral("../Resources/extensions"));
+#elif defined(Q_OS_WIN)
+    const QString path = appDir.filePath(QStringLiteral("extensions"));
+#else
+    const QString sharePath = appDir.filePath(QStringLiteral("../share/tiled/extensions"));
+    const QString path = QFileInfo::exists(sharePath)
+            ? sharePath
+            : appDir.filePath(QStringLiteral("extensions"));
+#endif
+
+    const QFileInfo info(path);
+    if (info.exists() && info.isDir())
+        return info.absoluteFilePath();
+
+    return {};
+}
+
 ScriptManager *ScriptManager::mInstance;
 
 ScriptManager &ScriptManager::instance()
@@ -410,6 +432,10 @@ void ScriptManager::scriptFilesChanged(const QStringList &scriptFiles)
 void ScriptManager::refreshExtensionsPaths()
 {
     QStringList extensionsPaths;
+
+    const QString bundledPath = bundledExtensionsPath();
+    if (!bundledPath.isEmpty())
+        extensionsPaths.append(bundledPath);
 
     if (!mExtensionsPath.isEmpty())
         extensionsPaths.append(mExtensionsPath);
