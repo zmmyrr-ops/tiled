@@ -1,0 +1,151 @@
+/****************************************************************************
+** Meta object code from reading C++ file 'scriptgeometry.cpp'
+**
+** Created by: The Qt Meta Object Compiler version 69 (Qt 6.11.1)
+**
+** WARNING! All changes made in this file will be lost!
+*****************************************************************************/
+
+#include <QtCore/qmetatype.h>
+
+#include <QtCore/qtmochelpers.h>
+
+#include <memory>
+
+
+#include <QtCore/qxptype_traits.h>
+#if !defined(Q_MOC_OUTPUT_REVISION)
+#error "The header file 'scriptgeometry.cpp' doesn't include <QObject>."
+#elif Q_MOC_OUTPUT_REVISION != 69
+#error "This file was generated using the moc from 6.11.1. It"
+#error "cannot be used with the include files from this version of Qt."
+#error "(The moc has changed too much.)"
+#endif
+
+#ifndef Q_CONSTINIT
+#define Q_CONSTINIT
+#endif
+
+QT_WARNING_PUSH
+QT_WARNING_DISABLE_DEPRECATED
+QT_WARNING_DISABLE_GCC("-Wuseless-cast")
+namespace {
+struct qt_meta_tag_ZN5Tiled14ScriptGeometryE_t {};
+} // unnamed namespace
+
+template <> constexpr inline auto Tiled::ScriptGeometry::qt_create_metaobjectdata<qt_meta_tag_ZN5Tiled14ScriptGeometryE_t>()
+{
+    namespace QMC = QtMocConstants;
+    QtMocHelpers::StringRefStorage qt_stringData {
+        "Tiled::ScriptGeometry",
+        "pointsOnLine",
+        "QList<QPoint>",
+        "",
+        "QPoint",
+        "a",
+        "b",
+        "manhattan",
+        "pointsOnEllipse",
+        "center",
+        "radiusX",
+        "radiusY",
+        "ellipseRegion",
+        "Tiled::RegionValueType",
+        "QRect",
+        "rect",
+        "x0",
+        "y0",
+        "x1",
+        "y1"
+    };
+
+    QtMocHelpers::UintData qt_methods {
+        // Method 'pointsOnLine'
+        QtMocHelpers::MethodData<QVector<QPoint>(QPoint, QPoint, bool)>(1, 3, QMC::AccessPublic, 0x80000000 | 2, {{
+            { 0x80000000 | 4, 5 }, { 0x80000000 | 4, 6 }, { QMetaType::Bool, 7 },
+        }}),
+        // Method 'pointsOnLine'
+        QtMocHelpers::MethodData<QVector<QPoint>(QPoint, QPoint)>(1, 3, QMC::AccessPublic | QMC::MethodCloned, 0x80000000 | 2, {{
+            { 0x80000000 | 4, 5 }, { 0x80000000 | 4, 6 },
+        }}),
+        // Method 'pointsOnEllipse'
+        QtMocHelpers::MethodData<QVector<QPoint>(QPoint, int, int)>(8, 3, QMC::AccessPublic, 0x80000000 | 2, {{
+            { 0x80000000 | 4, 9 }, { QMetaType::Int, 10 }, { QMetaType::Int, 11 },
+        }}),
+        // Method 'ellipseRegion'
+        QtMocHelpers::MethodData<Tiled::RegionValueType(QRect)>(12, 3, QMC::AccessPublic, 0x80000000 | 13, {{
+            { 0x80000000 | 14, 15 },
+        }}),
+        // Method 'ellipseRegion'
+        QtMocHelpers::MethodData<Tiled::RegionValueType(int, int, int, int)>(12, 3, QMC::AccessPublic, 0x80000000 | 13, {{
+            { QMetaType::Int, 16 }, { QMetaType::Int, 17 }, { QMetaType::Int, 18 }, { QMetaType::Int, 19 },
+        }}),
+    };
+    QtMocHelpers::UintData qt_properties {
+    };
+    QtMocHelpers::UintData qt_enums {
+    };
+    return QtMocHelpers::metaObjectData<ScriptGeometry, qt_meta_tag_ZN5Tiled14ScriptGeometryE_t>(QMC::MetaObjectFlag{}, qt_stringData,
+            qt_methods, qt_properties, qt_enums);
+}
+Q_CONSTINIT const QMetaObject Tiled::ScriptGeometry::staticMetaObject = { {
+    QMetaObject::SuperData::link<QObject::staticMetaObject>(),
+    qt_staticMetaObjectStaticContent<qt_meta_tag_ZN5Tiled14ScriptGeometryE_t>.stringdata,
+    qt_staticMetaObjectStaticContent<qt_meta_tag_ZN5Tiled14ScriptGeometryE_t>.data,
+    qt_static_metacall,
+    nullptr,
+    qt_staticMetaObjectRelocatingContent<qt_meta_tag_ZN5Tiled14ScriptGeometryE_t>.metaTypes,
+    nullptr
+} };
+
+void Tiled::ScriptGeometry::qt_static_metacall(QObject *_o, QMetaObject::Call _c, int _id, void **_a)
+{
+    auto *_t = static_cast<ScriptGeometry *>(_o);
+    if (_c == QMetaObject::InvokeMetaMethod) {
+        switch (_id) {
+        case 0: { QList<QPoint> _r = _t->pointsOnLine((*reinterpret_cast<std::add_pointer_t<QPoint>>(_a[1])),(*reinterpret_cast<std::add_pointer_t<QPoint>>(_a[2])),(*reinterpret_cast<std::add_pointer_t<bool>>(_a[3])));
+            if (_a[0]) *reinterpret_cast<QList<QPoint>*>(_a[0]) = std::move(_r); }  break;
+        case 1: { QList<QPoint> _r = _t->pointsOnLine((*reinterpret_cast<std::add_pointer_t<QPoint>>(_a[1])),(*reinterpret_cast<std::add_pointer_t<QPoint>>(_a[2])));
+            if (_a[0]) *reinterpret_cast<QList<QPoint>*>(_a[0]) = std::move(_r); }  break;
+        case 2: { QList<QPoint> _r = _t->pointsOnEllipse((*reinterpret_cast<std::add_pointer_t<QPoint>>(_a[1])),(*reinterpret_cast<std::add_pointer_t<int>>(_a[2])),(*reinterpret_cast<std::add_pointer_t<int>>(_a[3])));
+            if (_a[0]) *reinterpret_cast<QList<QPoint>*>(_a[0]) = std::move(_r); }  break;
+        case 3: { Tiled::RegionValueType _r = _t->ellipseRegion((*reinterpret_cast<std::add_pointer_t<QRect>>(_a[1])));
+            if (_a[0]) *reinterpret_cast<Tiled::RegionValueType*>(_a[0]) = std::move(_r); }  break;
+        case 4: { Tiled::RegionValueType _r = _t->ellipseRegion((*reinterpret_cast<std::add_pointer_t<int>>(_a[1])),(*reinterpret_cast<std::add_pointer_t<int>>(_a[2])),(*reinterpret_cast<std::add_pointer_t<int>>(_a[3])),(*reinterpret_cast<std::add_pointer_t<int>>(_a[4])));
+            if (_a[0]) *reinterpret_cast<Tiled::RegionValueType*>(_a[0]) = std::move(_r); }  break;
+        default: ;
+        }
+    }
+}
+
+const QMetaObject *Tiled::ScriptGeometry::metaObject() const
+{
+    return QObject::d_ptr->metaObject ? QObject::d_ptr->dynamicMetaObject() : &staticMetaObject;
+}
+
+void *Tiled::ScriptGeometry::qt_metacast(const char *_clname)
+{
+    if (!_clname) return nullptr;
+    if (!strcmp(_clname, qt_staticMetaObjectStaticContent<qt_meta_tag_ZN5Tiled14ScriptGeometryE_t>.strings))
+        return static_cast<void*>(this);
+    return QObject::qt_metacast(_clname);
+}
+
+int Tiled::ScriptGeometry::qt_metacall(QMetaObject::Call _c, int _id, void **_a)
+{
+    _id = QObject::qt_metacall(_c, _id, _a);
+    if (_id < 0)
+        return _id;
+    if (_c == QMetaObject::InvokeMetaMethod) {
+        if (_id < 5)
+            qt_static_metacall(this, _c, _id, _a);
+        _id -= 5;
+    }
+    if (_c == QMetaObject::RegisterMethodArgumentMetaType) {
+        if (_id < 5)
+            *reinterpret_cast<QMetaType *>(_a[0]) = QMetaType();
+        _id -= 5;
+    }
+    return _id;
+}
+QT_WARNING_POP
