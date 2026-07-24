@@ -64,3 +64,4 @@ gmon.out
 # Vim files
 *.swp
 *.swo
+debug/

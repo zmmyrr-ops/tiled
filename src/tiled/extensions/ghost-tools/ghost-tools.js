@@ -251,22 +251,26 @@ function mergeCellsToRects(cells, tileSize) {
 // 获取 placeholder GID
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** 从地图图块集中查找名称含 "placeholder" 的图块的 GID */
-function findPlaceholderGid(map) {
+/**
+ * 从地图图块集中查找 placeholder 图块（优先 placeholder01）。
+ * 返回 Tile 对象；找不到则返回 null。
+ */
+function findPlaceholderTile(map) {
     var tilesets = map.tilesets;
+    var fallback = null;
     for (var ti = 0; ti < tilesets.length; ti++) {
         var ts = tilesets[ti];
         for (var i = 0; i < ts.tileCount; i++) {
-            var tile = ts.tile(i);
+            var tile = ts.findTile ? ts.findTile(i) : ts.tile(i);
             if (!tile) continue;
             var imgSrc = (tile.imageFileName || "").toLowerCase();
-            if (imgSrc.indexOf("placeholder") !== -1) {
-                // GID = tileset firstGID + tile.id
-                return ts.firstGid + tile.id;
-            }
+            if (imgSrc.indexOf("placeholder01") !== -1)
+                return tile;
+            if (!fallback && imgSrc.indexOf("placeholder") !== -1)
+                fallback = tile;
         }
     }
-    return 132; // fallback
+    return fallback;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -317,55 +321,63 @@ function getDoorsForRoom(roomNum, doorLayer) {
 // 核心：生成 Bed 图层
 // ─────────────────────────────────────────────────────────────────────────────
 
-function generateBedLayers(map, bedLayer, floorLayer, roomLayer, doorLayer, tileSize, placeholderGid) {
+function generateBedLayers(map, bedLayer, floorLayer, roomLayer, doorLayer, tileSize, placeholderTile) {
+    if (!placeholderTile)
+        throw new Error("地图中未找到 placeholder 图块（期望 placeholder01）");
+
     var generatedLayers = [];
 
-    // 找出所有符合命名的 Bed 对象
-    var bedObjs = [];
+    // 按房间号分组：Bed_N / Bed_N_M → 输出图层统一为 Bed_N
+    var bedsByRoom = {};
     for (var i = 0; i < bedLayer.objectCount; i++) {
         var obj = bedLayer.objectAt(i);
-        if (BED_PATTERN.test(obj.name)) bedObjs.push(obj);
+        if (!BED_PATTERN.test(safeName(obj))) continue;
+        var info = parseBedName(obj.name);
+        if (!bedsByRoom[info.roomNum]) bedsByRoom[info.roomNum] = [];
+        bedsByRoom[info.roomNum].push(obj);
     }
 
-    // 按 Bed_N_M 数字排序
-    bedObjs.sort(function(a, b) {
-        var ma = BED_PATTERN.exec(a.name);
-        var mb = BED_PATTERN.exec(b.name);
-        var na = parseInt(ma[1]), nb = parseInt(mb[1]);
-        if (na !== nb) return na - nb;
-        return parseInt(ma[2] || 0) - parseInt(mb[2] || 0);
+    var roomNums = Object.keys(bedsByRoom).sort(function(a, b) {
+        return parseInt(a, 10) - parseInt(b, 10);
     });
 
-    for (var bi = 0; bi < bedObjs.length; bi++) {
-        var bedObj = bedObjs[bi];
-        var bedName = bedObj.name;
-        var info = parseBedName(bedName);
+    for (var ri = 0; ri < roomNums.length; ri++) {
+        var roomNum = roomNums[ri];
+        var roomBeds = bedsByRoom[roomNum];
+        var layerName = "Bed_" + roomNum;
 
-        var floorObj = findObject(floorLayer, "floor_" + info.roomNum);
-        if (!floorObj) throw new Error(bedName + " 缺少关联对象: floor_" + info.roomNum);
-        var doorObjs = getDoorsForBed(bedName, doorLayer);
-        var bedRect = parseRect(bedObj);
-        var doorRects = doorObjs.map(parseRect);
+        var floorObj = findObject(floorLayer, "floor_" + roomNum);
+        if (!floorObj) throw new Error(layerName + " 缺少关联对象: floor_" + roomNum);
+
+        // 校验每张床的门关联（多人房 door_N_M_K / 单人房 door_N）
+        for (var bi = 0; bi < roomBeds.length; bi++)
+            getDoorsForBed(roomBeds[bi].name, doorLayer);
+
+        // floor 内去掉该房间全部门 + 全部床
+        var doorObjs = getDoorsForRoom(roomNum, doorLayer);
+        if (doorObjs.length === 0)
+            throw new Error(layerName + " 缺少关联对象: door_" + roomNum);
+
+        var excludes = doorObjs.map(parseRect);
+        for (var bj = 0; bj < roomBeds.length; bj++)
+            excludes.push(parseRect(roomBeds[bj]));
 
         var floorPoly = parsePolygon(floorObj);
-        var excludes = doorRects.concat([bedRect]);
         var cells = rasterizePolygon(floorPoly, tileSize, excludes);
 
-        // 新建对象组图层
-        var group = new ObjectGroup(bedName);
+        var group = new ObjectGroup(layerName);
         group.visible = false;
 
         for (var key in cells) {
             var c = cells[key];
             var newObj = new MapObject();
             newObj.shape = MapObject.Rectangle;
+            // 必须先设 tile：图块对象以左下角为原点；未设 tile 时按左上角解释，会整体下移一格
+            newObj.tile = placeholderTile;
             newObj.x = c.gx * tileSize;
-            // 图块对象 y 为左下角
             newObj.y = (c.gy + 1) * tileSize;
             newObj.width = tileSize;
             newObj.height = tileSize;
-            // 设置 tile，使用 placeholderGid
-            // 通过 tiled.cell() 设置
             group.addObject(newObj);
         }
 
@@ -507,7 +519,7 @@ function generateMap() {
         var collisionLayer = findLayer(map, "Collision");
 
         var tileSize = map.tileWidth;
-        var placeholderGid = findPlaceholderGid(map);
+        var placeholderTile = findPlaceholderTile(map);
 
         // 删除上次生成的图层
         removeGeneratedLayers(map);
@@ -566,7 +578,7 @@ function generateMap() {
         }
 
         // 生成 Bed_N 图层
-        var bedLayers = generateBedLayers(map, bedLayer, floorLayer, roomLayer, doorLayer, tileSize, placeholderGid);
+        var bedLayers = generateBedLayers(map, bedLayer, floorLayer, roomLayer, doorLayer, tileSize, placeholderTile);
         for (var bli = 0; bli < bedLayers.length; bli++) {
             map.addLayer(bedLayers[bli]);
         }
