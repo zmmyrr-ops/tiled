@@ -3,7 +3,7 @@
  *
  * 将 generate_map.py 的地图后处理逻辑移植到 Tiled JS 扩展，
  * 在"猛鬼工具集"菜单中提供以下功能：
- *   - 生成地图图层（Bed_N、Collision、Road）
+ *   - 生成地图图层（Bed_N、Collision；Road 由人工绘制）
  *   - 验证地图图层命名规范
  */
 
@@ -50,6 +50,14 @@ function asObjectGroup(layer, expectedName) {
     if (!layer) return null;
     if (layer.objectCount === undefined) {
         throw new Error("图层 " + expectedName + " 必须是对象层（Object Layer）");
+    }
+    return layer;
+}
+
+function asTileLayer(layer, expectedName) {
+    if (!layer) return null;
+    if (layer.cellAt === undefined) {
+        throw new Error("图层 " + expectedName + " 必须是瓦片层（Tile Layer）");
     }
     return layer;
 }
@@ -122,6 +130,17 @@ function parseRect(obj) {
         return { x: x, y: y - h, w: w, h: h };
     }
     return { x: x, y: y, w: w, h: h };
+}
+
+/** 将矩形写入对象层（对应 generate_map.py 的 create_rect_object） */
+function addRectMapObject(layer, rect) {
+    var obj = new MapObject();
+    obj.shape = MapObject.Rectangle;
+    obj.x = rect.x;
+    obj.y = rect.y;
+    obj.width = rect.w;
+    obj.height = rect.h;
+    layer.addObject(obj);
 }
 
 /** 判断点 (px, py) 是否在矩形 {x,y,w,h} 内 */
@@ -437,42 +456,29 @@ function generateRoomCollisionRects(roomLayer, floorLayer, doorLayer, tileSize) 
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 核心：生成 Road 瓦片层
+// 核心：根据手工 Road 层生成 Collision（全图减去可走区域）
 // ─────────────────────────────────────────────────────────────────────────────
 
-var WALKABLE_TILE_ID = 8;
+/** Road 层格子是否有图块（视为可走区域，不生成碰撞） */
+function isRoadTile(roadLayer, col, row) {
+    var cell = roadLayer.cellAt(col, row);
+    return cell && !cell.empty;
+}
 
-function generateRoadLayer(map, collisionRects, groundLayer) {
-    var w = map.width, h = map.height;
-    var tileSize = map.tileWidth; // 假设正方形格子
-
-    var roadLayer = new TileLayer("Road");
-    roadLayer.width = w;
-    roadLayer.height = h;
-    var edit = roadLayer.edit();
-
-    var half = tileSize / 2.0;
+/** 将非 Road 格子合并为 Collision 矩形列表 */
+function generateCollisionRectsFromRoad(map, roadLayer) {
+    var w = map.width;
+    var h = map.height;
+    var tileSize = map.tileWidth;
+    var cells = {};
     for (var row = 0; row < h; row++) {
         for (var col = 0; col < w; col++) {
-            var cx = col * tileSize + half;
-            var cy = row * tileSize + half;
-            if (pointInRects(cx, cy, collisionRects)) {
-                // 碰撞格子：GID 0（空）
-                edit.setTile(col, row, null);
-            } else if (groundLayer) {
-                // 复用 Ground 层的 tile
-                var groundCell = groundLayer.cellAt(col, row);
-                edit.setCell(col, row, groundCell);
-            } else {
-                // 使用默认可行走 tile（需要从图块集取，此处简化为空）
-                edit.setTile(col, row, null);
-            }
+            if (isRoadTile(roadLayer, col, row))
+                continue;
+            cells[col + "," + row] = { gx: col, gy: row };
         }
     }
-    edit.apply();
-    roadLayer.visible = false;
-    roadLayer.locked = true;
-    return roadLayer;
+    return mergeCellsToRects(cells, tileSize);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -483,8 +489,7 @@ function removeGeneratedLayers(map) {
     var toRemove = [];
     for (var i = 0; i < map.layerCount; i++) {
         var layer = map.layerAt(i);
-        if (layer.name === "Road") toRemove.push(layer);
-        else if (BED_LAYER_PATTERN.test(layer.name)) toRemove.push(layer);
+        if (BED_LAYER_PATTERN.test(layer.name)) toRemove.push(layer);
     }
     for (var j = 0; j < toRemove.length; j++) {
         map.removeLayer(toRemove[j]);
@@ -502,8 +507,8 @@ function generateMap() {
         return;
     }
 
-    // 校验必填图层
-    var REQUIRED = ["Floor", "Room", "Door", "Bed"];
+    // 校验必填图层（Road 由人工绘制，不参与生成）
+    var REQUIRED = ["Floor", "Room", "Door", "Bed", "Road"];
     var missing = REQUIRED.filter(function(name) { return !findLayer(map, name); });
     if (missing.length > 0) {
         showError("缺少必填图层：" + missing.join(", "));
@@ -515,67 +520,34 @@ function generateMap() {
         var roomLayer  = asObjectGroup(findLayer(map, "Room"), "Room");
         var doorLayer  = asObjectGroup(findLayer(map, "Door"), "Door");
         var bedLayer   = asObjectGroup(findLayer(map, "Bed"), "Bed");
-        var groundLayer = findLayer(map, "Ground");
+        var roadLayer  = asTileLayer(findLayer(map, "Road"), "Road");
         var collisionLayer = findLayer(map, "Collision");
 
         var tileSize = map.tileWidth;
         var placeholderTile = findPlaceholderTile(map);
 
-        // 删除上次生成的图层
+        // 只删上次生成的 Bed_N（Road / Collision 均不删）
         removeGeneratedLayers(map);
 
-        // 保留 Collision 层原有的边界对象（手工放的）
-        var boundaryRects = [];
-        if (collisionLayer) {
-            for (var ci = 0; ci < collisionLayer.objectCount; ci++) {
-                var obj = collisionLayer.objectAt(ci);
-                if (obj.width > 0 && obj.height > 0) {
-                    boundaryRects.push(parseRect(obj));
-                }
-            }
-        }
+        // Collision = 全图格子 − Road 可走格子，合并为矩形
+        var collisionRects = generateCollisionRectsFromRoad(map, roadLayer);
 
-        // 生成房间碰撞矩形
-        var roomRects = generateRoomCollisionRects(roomLayer, floorLayer, doorLayer, tileSize);
-        var allCollisionRects = boundaryRects.concat(roomRects);
-
-        // 更新 Collision 层（清空后重新填充房间墙体矩形，保留边界对象）
+        var collisionWasLocked = false;
         if (!collisionLayer) {
             collisionLayer = new ObjectGroup("Collision");
             collisionLayer.visible = false;
             map.addLayer(collisionLayer);
         } else {
-            // 清空图层中的所有对象，再重新添加
-            while (collisionLayer.objectCount > 0) {
+            collisionLayer = asObjectGroup(collisionLayer, "Collision");
+            var collisionWasLocked = collisionLayer.locked;
+            if (collisionWasLocked) collisionLayer.locked = false;
+            while (collisionLayer.objectCount > 0)
                 collisionLayer.removeObjectAt(0);
-            }
         }
-        // 重新添加边界对象（原样）
-        // 此处将 boundaryRects 还原为对象——简化处理：只添加 roomRects 对应的矩形
-        for (var ri = 0; ri < roomRects.length; ri++) {
-            var r = roomRects[ri];
-            var rObj = new MapObject();
-            rObj.shape = MapObject.Rectangle;
-            rObj.x = r.x;
-            rObj.y = r.y;
-            rObj.width = r.w;
-            rObj.height = r.h;
-            collisionLayer.addObject(rObj);
-        }
-
-        // 生成 Road 层
-        var roadLayer = generateRoadLayer(map, allCollisionRects, groundLayer);
-
-        // 插入 Road 层：放在 Ground 层前面（或最前面）
-        var groundIdx = -1;
-        for (var li = 0; li < map.layerCount; li++) {
-            if (map.layerAt(li).name === "Ground") { groundIdx = li; break; }
-        }
-        if (groundIdx >= 0) {
-            map.insertLayerAt(groundIdx, roadLayer);
-        } else {
-            map.insertLayerAt(0, roadLayer);
-        }
+        collisionLayer.visible = false;
+        for (var ci = 0; ci < collisionRects.length; ci++)
+            addRectMapObject(collisionLayer, collisionRects[ci]);
+        if (collisionWasLocked) collisionLayer.locked = true;
 
         // 生成 Bed_N 图层
         var bedLayers = generateBedLayers(map, bedLayer, floorLayer, roomLayer, doorLayer, tileSize, placeholderTile);
@@ -583,7 +555,11 @@ function generateMap() {
             map.addLayer(bedLayers[bli]);
         }
 
-        showInfo("地图图层生成完成！Road 层 1 个，Bed 图层 " + bedLayers.length + " 个，碰撞矩形 " + roomRects.length + " 个。");
+        showInfo("地图图层生成完成！\nBed 图层 " + bedLayers.length +
+            " 个，Collision 矩形 " + collisionRects.length +
+            " 个（依据手工 Road 层，不生成 Road）。");
+        tiled.log("[猛鬼工具集] generateMap collisionRects=" + collisionRects.length +
+            " bedLayers=" + bedLayers.length);
 
     } catch (e) {
         showError("生成失败：" + e.message);
@@ -662,26 +638,30 @@ function validateMap() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 生成小地图（190px 示意图）
+// 生成小地图（最长边 190px）
 //
-// 绘制规则（对齐设计稿 small_map*.png）：
-//   1. 透明底（走廊 / 地图外 = 黑色；预览里勿留透明墙洞，否则会显白）
-//   2. Floor → 深色半透明填充（房间地板）
-//   3. Collision 墙体：
-//      - 薄墙（最短边 ≤ THIN_PX）：中间填暗青色 WALL，避免镂空发白
-//      - 厚墙：不整块填充（避免地图周围被大片填满）
-//      - 靠走廊外侧：亮青绿描边
-//      - 靠屋内侧：颜色向地板色渐变（墙面显得更细、更好看）
-//   4. 4x 超采样后盒式缩小 → 抗锯齿质感
+// 绘制规则：
+//   1. 透明底（走廊 / 地图外）
+//   2. Floor 多边形 → 深色填充
+//   3. Collision 全部矩形（含四周边界）→ 距离变换填绿
+//   4. 4x 超采样预乘 alpha 降采样
 // ─────────────────────────────────────────────────────────────────────────────
 
+var MINIMAP_ALGO_VERSION = "2026-07-28-wallfill-v11";
 var MINIMAP_MAX_SIZE = 190;
 var MINIMAP_SUPERSAMPLE = 4;
-/** 薄墙判定：最终像素上最短边 ≤ 此值则填墙心 */
-var MINIMAP_THIN_WALL_PX = 5;
-var MINIMAP_FILL   = { r: 17, g: 29, b: 43, a: 179 };  // 地板
-var MINIMAP_WALL   = { r: 43, g: 86, b: 87, a: 179 };  // 墙心暗青
-var MINIMAP_STROKE = { r: 92, g: 198, b: 175, a: 179 }; // 外侧亮边
+/** 薄墙判定：矩形短边缩放后 ≤ 此值（px）视为薄墙，整段填绿 */
+var MINIMAP_THIN_THRESH = 5;
+/** 一个地图格子在小地图 hi-res 上的厚度（像素） */
+function minimapTileDepthHiRes(tileWidth, baseScale) {
+    return Math.max(1, Math.round(tileWidth * baseScale * MINIMAP_SUPERSAMPLE));
+}
+/** 房间 Floor 深色 */
+var MINIMAP_FLOOR_FILL = { r: 18, g: 30, b: 44, a: 179 };
+/** Collision 墙体内填充（亮绿，与设计稿一致） */
+var MINIMAP_WALL_FILL  = { r: 96, g: 206, b: 182, a: 179 };
+/** Collision 外沿描边 */
+var MINIMAP_STROKE     = { r: 96, g: 206, b: 182, a: 179 };
 
 function clamp(v, lo, hi) {
     return Math.max(lo, Math.min(hi, v));
@@ -689,142 +669,6 @@ function clamp(v, lo, hi) {
 
 function colorToRgba(c) {
     return tiled.color(c.r / 255, c.g / 255, c.b / 255, c.a / 255);
-}
-
-function lerpColor(a, b, t) {
-    t = Math.max(0, Math.min(1, t));
-    return {
-        r: Math.round(a.r * (1 - t) + b.r * t),
-        g: Math.round(a.g * (1 - t) + b.g * t),
-        b: Math.round(a.b * (1 - t) + b.b * t),
-        a: Math.round(a.a * (1 - t) + b.a * t)
-    };
-}
-
-/** Bresenham 画线（支持粗细） */
-function drawLine(img, x0, y0, x1, y1, color, width) {
-    x0 = Math.round(x0); y0 = Math.round(y0);
-    x1 = Math.round(x1); y1 = Math.round(y1);
-    var dx = Math.abs(x1 - x0), sx = x0 < x1 ? 1 : -1;
-    var dy = -Math.abs(y1 - y0), sy = y0 < y1 ? 1 : -1;
-    var err = dx + dy;
-    var half = Math.max(0, Math.floor(((width || 1) - 1) / 2));
-    var w = img.width, h = img.height;
-    var qcolor = colorToRgba(color);
-
-    while (true) {
-        for (var oy = -half; oy <= half; oy++) {
-            for (var ox = -half; ox <= half; ox++) {
-                var px = x0 + ox, py = y0 + oy;
-                if (px >= 0 && py >= 0 && px < w && py < h)
-                    img.setPixelColor(px, py, qcolor);
-            }
-        }
-        if (x0 === x1 && y0 === y1) break;
-        var e2 = 2 * err;
-        if (e2 >= dy) { err += dy; x0 += sx; }
-        if (e2 <= dx) { err += dx; y0 += sy; }
-    }
-}
-
-/** 扫描线填充多边形（可向外膨胀 expand 像素） */
-function fillPolygon(img, pts, color, expand) {
-    if (!pts || pts.length < 3) return;
-    expand = expand || 0;
-    var w = img.width, h = img.height;
-    var qcolor = colorToRgba(color);
-    var minY = Infinity, maxY = -Infinity;
-    for (var i = 0; i < pts.length; i++) {
-        minY = Math.min(minY, pts[i].y);
-        maxY = Math.max(maxY, pts[i].y);
-    }
-    minY = Math.max(0, Math.floor(minY - expand));
-    maxY = Math.min(h - 1, Math.ceil(maxY + expand));
-
-    for (var y = minY; y <= maxY; y++) {
-        var nodes = [];
-        var j = pts.length - 1;
-        for (var i = 0; i < pts.length; i++) {
-            var pi = pts[i], pj = pts[j];
-            if ((pi.y < y && pj.y >= y) || (pj.y < y && pi.y >= y)) {
-                nodes.push(pi.x + (y - pi.y) / (pj.y - pi.y) * (pj.x - pi.x));
-            }
-            j = i;
-        }
-        nodes.sort(function(a, b) { return a - b; });
-        for (var k = 0; k + 1 < nodes.length; k += 2) {
-            var x0 = Math.max(0, Math.floor(nodes[k] - expand));
-            var x1 = Math.min(w - 1, Math.ceil(nodes[k + 1] + expand));
-            for (var x = x0; x <= x1; x++)
-                img.setPixelColor(x, y, qcolor);
-        }
-    }
-}
-
-function strokePolygon(img, pts, color, width) {
-    if (!pts || pts.length < 2) return;
-    for (var i = 0; i < pts.length; i++) {
-        var a = pts[i];
-        var b = pts[(i + 1) % pts.length];
-        drawLine(img, a.x, a.y, b.x, b.y, color, width);
-    }
-}
-
-function fillRectPixels(img, rect, color) {
-    var w = img.width, h = img.height;
-    var x0 = clamp(Math.floor(rect.x), 0, w);
-    var y0 = clamp(Math.floor(rect.y), 0, h);
-    var x1 = clamp(Math.ceil(rect.x + rect.w), 0, w);
-    var y1 = clamp(Math.ceil(rect.y + rect.h), 0, h);
-    var qcolor = colorToRgba(color);
-    for (var y = y0; y < y1; y++) {
-        for (var x = x0; x < x1; x++)
-            img.setPixelColor(x, y, qcolor);
-    }
-}
-
-/**
- * 盒式降采样：只平均不透明像素，产生绿色抗锯齿质感
- */
-function downsampleImage(src, outW, outH) {
-    var sw = src.width, sh = src.height;
-    var sx = sw / outW, sy = sh / outH;
-    var dst = new Image(outW, outH);
-    dst.fill(tiled.color(0, 0, 0, 0));
-
-    for (var y = 0; y < outH; y++) {
-        var y0 = Math.floor(y * sy);
-        var y1 = Math.min(sh, Math.floor((y + 1) * sy));
-        if (y1 <= y0) y1 = Math.min(sh, y0 + 1);
-        for (var x = 0; x < outW; x++) {
-            var x0 = Math.floor(x * sx);
-            var x1 = Math.min(sw, Math.floor((x + 1) * sx));
-            if (x1 <= x0) x1 = Math.min(sw, x0 + 1);
-            var rs = 0, gs = 0, bs = 0, as = 0, n = 0;
-            for (var yy = y0; yy < y1; yy++) {
-                for (var xx = x0; xx < x1; xx++) {
-                    var px = src.pixel(xx, yy); // ARGB uint
-                    var a = (px >>> 24) & 0xff;
-                    if (a > 0) {
-                        rs += (px >>> 16) & 0xff;
-                        gs += (px >>> 8) & 0xff;
-                        bs += px & 0xff;
-                        as += a;
-                        n++;
-                    }
-                }
-            }
-            if (n > 0) {
-                dst.setPixelColor(x, y, tiled.color(
-                    (rs / n) / 255,
-                    (gs / n) / 255,
-                    (bs / n) / 255,
-                    (as / n) / 255
-                ));
-            }
-        }
-    }
-    return dst;
 }
 
 function collectPolygons(layer) {
@@ -868,131 +712,208 @@ function transformRect(rect, scale) {
     };
 }
 
-/** 判断 Collision 矩形是否为地图外圈边界墙（不参与小地图绘制） */
-function isBoundaryCollisionRect(rect, mapPixelW, mapPixelH) {
-    var tol = 1;
-    var touchesLeft   = rect.x <= tol;
-    var touchesTop    = rect.y <= tol;
-    var touchesRight  = rect.x + rect.w >= mapPixelW - tol;
-    var touchesBottom = rect.y + rect.h >= mapPixelH - tol;
-    if (!touchesLeft && !touchesTop && !touchesRight && !touchesBottom)
-        return false;
-    if ((touchesTop || touchesBottom) && rect.w >= mapPixelW * 0.5)
-        return true;
-    if ((touchesLeft || touchesRight) && rect.h >= mapPixelH * 0.5)
-        return true;
-    return false;
+function createMask(w, h) {
+    var m = [];
+    for (var y = 0; y < h; y++) {
+        m[y] = [];
+        for (var x = 0; x < w; x++) m[y][x] = 0;
+    }
+    return m;
 }
 
-/**
- * Collision 墙体：
- * - 薄墙填暗青墙心（避免透明洞在浅色预览里发白）
- * - 厚墙不整块填充（地图周围保持透明）
- * - 外侧亮青绿，内侧向地板色渐变
- */
-function paintCollisionWalls(img, collisionRects, floorMask, scale, baseScale, rimHi) {
-    var w = img.width, h = img.height;
-    var coll = [];
-    var y, x, i, d;
-
-    for (y = 0; y < h; y++) {
-        coll[y] = [];
-        for (x = 0; x < w; x++) coll[y][x] = 0;
+function fillMaskPolygon(mask, w, h, pts) {
+    if (!pts || pts.length < 3) return;
+    var minY = Infinity, maxY = -Infinity, i;
+    for (i = 0; i < pts.length; i++) {
+        minY = Math.min(minY, pts[i].y);
+        maxY = Math.max(maxY, pts[i].y);
     }
+    minY = Math.max(0, Math.floor(minY));
+    maxY = Math.min(h - 1, Math.ceil(maxY));
+    for (var y = minY; y <= maxY; y++) {
+        var nodes = [];
+        var j = pts.length - 1;
+        for (i = 0; i < pts.length; i++) {
+            var pi = pts[i], pj = pts[j];
+            if (pi.y !== pj.y &&
+                ((pi.y < y && pj.y >= y) || (pj.y < y && pi.y >= y)))
+                nodes.push(pi.x + (y - pi.y) / (pj.y - pi.y) * (pj.x - pi.x));
+            j = i;
+        }
+        nodes.sort(function(a, b) { return a - b; });
+        for (var k = 0; k + 1 < nodes.length; k += 2) {
+            var x0 = Math.max(0, Math.floor(nodes[k]));
+            var x1 = Math.min(w - 1, Math.ceil(nodes[k + 1]));
+            for (var x = x0; x <= x1; x++)
+                mask[y][x] = 1;
+        }
+    }
+}
 
-    // 薄墙填墙心；所有墙写入碰撞掩码
+function fillMaskRect(mask, w, h, rect) {
+    var x0 = clamp(Math.floor(rect.x), 0, w);
+    var y0 = clamp(Math.floor(rect.y), 0, h);
+    var x1 = clamp(Math.ceil(rect.x + rect.w), 0, w);
+    var y1 = clamp(Math.ceil(rect.y + rect.h), 0, h);
+    for (var y = y0; y < y1; y++)
+        for (var x = x0; x < x1; x++)
+            mask[y][x] = 1;
+}
+
+function buildCollisionMask(w, h, collisionRects, scale, baseScale) {
+    var coll = createMask(w, h);
+    var thin = createMask(w, h);
+    var i, rect, r, x0, y0, x1, y1, y, x, isThin;
     for (i = 0; i < collisionRects.length; i++) {
-        var rect = collisionRects[i];
-        var r = transformRect(rect, scale);
-        var x0 = clamp(Math.floor(r.x), 0, w);
-        var y0 = clamp(Math.floor(r.y), 0, h);
-        var x1 = clamp(Math.ceil(r.x + r.w), 0, w);
-        var y1 = clamp(Math.ceil(r.y + r.h), 0, h);
-        var thin = Math.min(rect.w, rect.h) * baseScale <= MINIMAP_THIN_WALL_PX;
+        rect = collisionRects[i];
+        isThin = Math.min(rect.w, rect.h) * baseScale <= MINIMAP_THIN_THRESH;
+        r = transformRect(rect, scale);
+        x0 = clamp(Math.floor(r.x), 0, w);
+        y0 = clamp(Math.floor(r.y), 0, h);
+        x1 = clamp(Math.ceil(r.x + r.w), 0, w);
+        y1 = clamp(Math.ceil(r.y + r.h), 0, h);
         for (y = y0; y < y1; y++) {
             for (x = x0; x < x1; x++) {
                 coll[y][x] = 1;
-                if (thin)
-                    img.setPixelColor(x, y, colorToRgba(MINIMAP_WALL));
+                if (isThin) thin[y][x] = 1;
             }
         }
     }
+    return { coll: coll, thin: thin };
+}
 
-    // 空地 = 非碰撞且非地板（走廊 / 地图外）
-    var empty = [];
+/**
+ * 多源 BFS：计算每个 Coll 像素到最近非 Coll（走廊 / Floor / 地图外）的距离。
+ * Python 参考实现用的同一思路，保证外层绿带连续无断档。
+ */
+function buildDistToOpen(coll, w, h) {
+    var INF = 1000000;
+    var dist = [];
+    var queue = [];
+    var qh = 0;
+    var dirs = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+    var x, y, i, nx, ny, d, nd;
     for (y = 0; y < h; y++) {
-        empty[y] = [];
-        for (x = 0; x < w; x++)
-            empty[y][x] = (!coll[y][x] && !(floorMask[y] && floorMask[y][x])) ? 1 : 0;
-    }
-
-    function bfs(source) {
-        var dist = [];
-        var queue = [];
-        var qh = 0;
-        for (y = 0; y < h; y++) {
-            dist[y] = [];
-            for (x = 0; x < w; x++) {
-                if (source[y][x]) {
-                    dist[y][x] = 0;
-                    queue.push(x, y);
-                } else {
-                    dist[y][x] = -1;
-                }
+        dist[y] = [];
+        for (x = 0; x < w; x++) {
+            if (!coll[y][x]) {
+                dist[y][x] = 0;
+                queue.push(x, y);
+            } else {
+                dist[y][x] = INF;
             }
         }
-        var dirs = [[1, 0], [-1, 0], [0, 1], [0, -1]];
-        while (qh < queue.length) {
-            var cx = queue[qh++];
-            var cy = queue[qh++];
-            var cd = dist[cy][cx];
-            for (d = 0; d < dirs.length; d++) {
-                var nx = cx + dirs[d][0];
-                var ny = cy + dirs[d][1];
-                if (nx < 0 || ny < 0 || nx >= w || ny >= h) continue;
-                if (dist[ny][nx] !== -1) continue;
-                dist[ny][nx] = cd + 1;
+    }
+    while (qh < queue.length) {
+        x = queue[qh++];
+        y = queue[qh++];
+        d = dist[y][x];
+        for (i = 0; i < dirs.length; i++) {
+            nx = x + dirs[i][0];
+            ny = y + dirs[i][1];
+            if (nx < 0 || ny < 0 || nx >= w || ny >= h) continue;
+            nd = d + 1;
+            if (dist[ny][nx] > nd) {
+                dist[ny][nx] = nd;
                 queue.push(nx, ny);
             }
         }
-        return dist;
     }
+    return dist;
+}
 
-    var distEmpty = bfs(empty);
-    var distFloor = bfs(floorMask);
-    var strokeQ = colorToRgba(MINIMAP_STROKE);
-
+/** 墙填充：薄墙整段亮绿；厚墙从各开放面向内填 bandDepth 层 */
+function buildWallFillMask(coll, thin, w, h, bandDepth) {
+    var dist = buildDistToOpen(coll, w, h);
+    var wall = createMask(w, h);
+    var y, x, d;
     for (y = 0; y < h; y++) {
         for (x = 0; x < w; x++) {
             if (!coll[y][x]) continue;
-            var de = distEmpty[y][x];
-            var df = distFloor[y][x];
+            if (thin[y][x]) {
+                wall[y][x] = 1;
+                continue;
+            }
+            d = dist[y][x];
+            if (d >= 1 && d <= bandDepth)
+                wall[y][x] = 1;
+        }
+    }
+    return wall;
+}
 
-            // 外侧（靠走廊/地图外）：亮青绿
-            if (de > 0 && de <= rimHi) {
-                img.setPixelColor(x, y, strokeQ);
-            }
-            // 内侧（靠地板）：向地板色渐变，显得墙更细
-            else if (df > 0 && df <= rimHi) {
-                var t = 1.0 - (df - 1) / rimHi;
-                var blended = lerpColor(MINIMAP_WALL, MINIMAP_FILL, 0.55 + 0.45 * t);
-                img.setPixelColor(x, y, colorToRgba(blended));
-            }
-            // 厚墙未填心的边缘：补亮边 / 内侧渐变
-            else {
-                var px = img.pixel(x, y);
-                var a = (px >>> 24) & 0xff;
-                if (a === 0) {
-                    if (de > 0 && de <= rimHi)
-                        img.setPixelColor(x, y, strokeQ);
-                    else if (df > 0 && df <= rimHi) {
-                        var blended2 = lerpColor(MINIMAP_STROKE, MINIMAP_FILL, 0.7);
-                        img.setPixelColor(x, y, colorToRgba(blended2));
-                    }
+/** 盒式降采样：预乘 alpha 合成到黑底，避免细描边被透明像素稀释变暗 */
+function downsampleImage(src, outW, outH) {
+    var sw = src.width, sh = src.height;
+    var sx = sw / outW, sy = sh / outH;
+    var dst = new Image(outW, outH);
+    dst.fill(tiled.color(0, 0, 0, 0));
+
+    for (var y = 0; y < outH; y++) {
+        var y0 = Math.floor(y * sy);
+        var y1 = Math.min(sh, Math.floor((y + 1) * sy));
+        if (y1 <= y0) y1 = Math.min(sh, y0 + 1);
+        for (var x = 0; x < outW; x++) {
+            var x0 = Math.floor(x * sx);
+            var x1 = Math.min(sw, Math.floor((x + 1) * sx));
+            if (x1 <= x0) x1 = Math.min(sw, x0 + 1);
+            var rs = 0, gs = 0, bs = 0, as = 0, n = 0;
+            for (var yy = y0; yy < y1; yy++) {
+                for (var xx = x0; xx < x1; xx++) {
+                    var px = src.pixel(xx, yy);
+                    var a = (px >>> 24) & 0xff;
+                    rs += ((px >>> 16) & 0xff) * a;
+                    gs += ((px >>> 8) & 0xff) * a;
+                    bs += (px & 0xff) * a;
+                    as += a;
+                    n++;
                 }
+            }
+            if (as > 0) {
+                dst.setPixelColor(x, y, tiled.color(
+                    (rs / as) / 255,
+                    (gs / as) / 255,
+                    (bs / as) / 255,
+                    (as / n) / 255
+                ));
             }
         }
     }
+    return dst;
+}
+
+/** 渲染小地图：Floor 填充 + 全部 Collision 填绿（含四周边界） */
+function renderMinimapImage(outW, outH, floorPolys, collisionRects, baseScale, tileWidth) {
+    var ss = MINIMAP_SUPERSAMPLE;
+    var scale = baseScale * ss;
+    var w = Math.max(1, Math.round(outW * ss));
+    var h = Math.max(1, Math.round(outH * ss));
+    var bandDepth = minimapTileDepthHiRes(tileWidth, baseScale);
+    var floor = createMask(w, h);
+    var i, y, x;
+
+    for (i = 0; i < floorPolys.length; i++)
+        fillMaskPolygon(floor, w, h, transformPoly(floorPolys[i], scale));
+
+    var collMask = buildCollisionMask(w, h, collisionRects, scale, baseScale);
+    var coll = collMask.coll;
+    var thin = collMask.thin;
+    var wallFill = buildWallFillMask(coll, thin, w, h, bandDepth);
+
+    var hi = new Image(w, h);
+    hi.fill(tiled.color(0, 0, 0, 0));
+    var floorQ = colorToRgba(MINIMAP_FLOOR_FILL);
+    var wallQ = colorToRgba(MINIMAP_WALL_FILL);
+    for (y = 0; y < h; y++) {
+        for (x = 0; x < w; x++) {
+            if (wallFill[y][x]) hi.setPixelColor(x, y, wallQ);
+            else if (floor[y][x]) hi.setPixelColor(x, y, floorQ);
+        }
+    }
+
+    if (ss > 1)
+        return downsampleImage(hi, outW, outH);
+    return hi;
 }
 
 function defaultMinimapFileName(map) {
@@ -1035,72 +956,14 @@ function generateMinimap() {
         var baseScale = MINIMAP_MAX_SIZE / Math.max(mapPixelW, mapPixelH);
         var outW = Math.max(1, Math.round(mapPixelW * baseScale));
         var outH = Math.max(1, Math.round(mapPixelH * baseScale));
-        var ss = MINIMAP_SUPERSAMPLE;
-        var hiScale = baseScale * ss;
-        var hiW = Math.max(1, Math.round(mapPixelW * hiScale));
-        var hiH = Math.max(1, Math.round(mapPixelH * hiScale));
 
-        var img = new Image(hiW, hiH);
-        img.fill(tiled.color(0, 0, 0, 0));
-
-        // 地板掩码（供墙体内侧渐变使用）
-        var floorMask = [];
-        for (var fy = 0; fy < hiH; fy++) {
-            floorMask[fy] = [];
-            for (var fx = 0; fx < hiW; fx++) floorMask[fy][fx] = 0;
-        }
-
-        // 1) Floor 深色填充
         var fillPolys = collectPolygons(floorLayer);
-        for (var fi = 0; fi < fillPolys.length; fi++) {
-            var poly = transformPoly(fillPolys[fi], hiScale);
-            fillPolygon(img, poly, MINIMAP_FILL);
-            // 同步写入地板掩码（与 fillPolygon 相同扫描）
-            if (poly.length >= 3) {
-                var minY = Infinity, maxY = -Infinity, pi;
-                for (pi = 0; pi < poly.length; pi++) {
-                    minY = Math.min(minY, poly[pi].y);
-                    maxY = Math.max(maxY, poly[pi].y);
-                }
-                minY = Math.max(0, Math.floor(minY));
-                maxY = Math.min(hiH - 1, Math.ceil(maxY));
-                for (var yy = minY; yy <= maxY; yy++) {
-                    var nodes = [];
-                    var j = poly.length - 1;
-                    for (var ii = 0; ii < poly.length; ii++) {
-                        var pii = poly[ii], pjj = poly[j];
-                        if ((pii.y < yy && pjj.y >= yy) || (pjj.y < yy && pii.y >= yy))
-                            nodes.push(pii.x + (yy - pii.y) / (pjj.y - pii.y) * (pjj.x - pii.x));
-                        j = ii;
-                    }
-                    nodes.sort(function(a, b) { return a - b; });
-                    for (var k = 0; k + 1 < nodes.length; k += 2) {
-                        var xa = Math.max(0, Math.floor(nodes[k]));
-                        var xb = Math.min(hiW - 1, Math.ceil(nodes[k + 1]));
-                        for (var xx = xa; xx <= xb; xx++)
-                            floorMask[yy][xx] = 1;
-                    }
-                }
-            }
-        }
+        var collRects = collectRects(collisionLayer);
 
-        // 2) Collision：薄墙填暗青 + 外侧亮边 + 内侧向地板渐变
-        var roomCollRects = [];
-        var allCollRects = collectRects(collisionLayer);
-        for (var ci = 0; ci < allCollRects.length; ci++) {
-            var cr = allCollRects[ci];
-            if (isBoundaryCollisionRect(cr, mapPixelW, mapPixelH))
-                continue;
-            roomCollRects.push(cr);
-        }
-        var rimHi = Math.max(1, Math.round(ss)); // ≈1 最终像素
-        paintCollisionWalls(img, roomCollRects, floorMask, hiScale, baseScale, rimHi);
+        var img = renderMinimapImage(
+            outW, outH, fillPolys, collRects, baseScale, map.tileWidth
+        );
 
-        // 3) 盒式降采样 → 抗锯齿质感
-        if (ss > 1)
-            img = downsampleImage(img, outW, outH);
-
-        // 4) 保存
         var defaultName = defaultMinimapFileName(map);
         var defaultDir = map.fileName ? FileInfo.path(map.fileName) : "";
         var outPath = tiled.promptSaveFile(
@@ -1122,11 +985,17 @@ function generateMinimap() {
 
         var dialog = new Dialog("猛鬼工具集 - 小地图");
         dialog.addHeading("小地图已生成", true);
+        dialog.addLabel("算法：" + MINIMAP_ALGO_VERSION);
+        dialog.addLabel("Floor RGB：" + MINIMAP_FLOOR_FILL.r + "," + MINIMAP_FLOOR_FILL.g + "," + MINIMAP_FLOOR_FILL.b +
+            "  墙体 RGB：" + MINIMAP_WALL_FILL.r + "," + MINIMAP_WALL_FILL.g + "," + MINIMAP_WALL_FILL.b);
+        dialog.addLabel("Collision 矩形：" + collRects.length + " 个（含四周边界）");
+        dialog.addLabel("墙带深度(hi-res)：" + minimapTileDepthHiRes(map.tileWidth, baseScale) + "px");
         dialog.addLabel("尺寸：" + outW + " × " + outH);
         dialog.addLabel("路径：" + outPath);
         dialog.addImage("", img);
         dialog.exec();
-        tiled.log("[猛鬼工具集] 小地图已保存: " + outPath + " (" + outW + "x" + outH + ")");
+        tiled.log("[猛鬼工具集] 小地图已保存: " + outPath + " (" + outW + "x" + outH + ", " + MINIMAP_ALGO_VERSION +
+            ", Coll=" + collRects.length + ")");
 
     } catch (e) {
         showError("生成小地图失败：" + e.message);
@@ -1140,7 +1009,7 @@ function generateMinimap() {
 var actionGenerate = tiled.registerAction("GhostTools_GenerateMap", function() {
     generateMap();
 });
-actionGenerate.text = "生成地图图层（Bed / Collision / Road）";
+actionGenerate.text = "生成地图图层（Bed / Collision）";
 
 var actionValidate = tiled.registerAction("GhostTools_ValidateMap", function() {
     validateMap();
@@ -1158,3 +1027,7 @@ tiled.extendMenu("GhostTools", [
     { separator: true },
     { action: "GhostTools_GenerateMinimap" },
 ]);
+
+tiled.log("[猛鬼工具集] 已加载 " + MINIMAP_ALGO_VERSION +
+    " floor=" + MINIMAP_FLOOR_FILL.r + "," + MINIMAP_FLOOR_FILL.g + "," + MINIMAP_FLOOR_FILL.b +
+    " wall=" + MINIMAP_WALL_FILL.r + "," + MINIMAP_WALL_FILL.g + "," + MINIMAP_WALL_FILL.b);
