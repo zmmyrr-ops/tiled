@@ -4,7 +4,7 @@
  * 将 generate_map.py 的地图后处理逻辑移植到 Tiled JS 扩展，
  * 在"猛鬼工具集"菜单中提供以下功能：
  *   - 生成地图图层（Bed_N、Collision；Road 由人工绘制）
- *   - 验证地图图层命名规范
+ *   - 验证地图图层命名规范（含 Bed_x 是否在 room_x 范围内）
  */
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -298,7 +298,87 @@ function findPlaceholderTile(map) {
 
 var BED_PATTERN = /^Bed_(\d+)(?:_(\d+))?$/;
 var BED_LAYER_PATTERN = /^Bed_\d+(?:_\d+)?$/;
+/** 生成后的 Bed 输出图层：Bed_1 … Bed_8 */
+var BED_OUTPUT_LAYER_PATTERN = /^Bed_([1-8])$/;
 var DOOR_MULTI_PATTERN = /^door_(\d+)_(\d+)_(\d+)$/;
+
+/** 判断矩形四个角是否都在多边形内（用于 Bed 图块不超出 room 范围） */
+function rectWithinPolygon(rect, poly) {
+    var corners = [
+        { x: rect.x, y: rect.y },
+        { x: rect.x + rect.w, y: rect.y },
+        { x: rect.x, y: rect.y + rect.h },
+        { x: rect.x + rect.w, y: rect.y + rect.h }
+    ];
+    for (var i = 0; i < corners.length; i++) {
+        if (!pointInPolygon(corners[i].x, corners[i].y, poly))
+            return false;
+    }
+    return true;
+}
+
+/** 收集 Room 层 room_N → 多边形 */
+function collectRoomPolygons(roomLayer) {
+    var roomPolys = {};
+    for (var ri = 0; ri < roomLayer.objectCount; ri++) {
+        var roomObj = roomLayer.objectAt(ri);
+        var name = safeName(roomObj);
+        var m = /^room_(\d+)$/.exec(name);
+        if (!m) continue;
+        roomPolys[m[1]] = parsePolygon(roomObj);
+    }
+    return roomPolys;
+}
+
+/** Bed_1…Bed_8 图层中的图块不得超出对应 room_x 多边形 */
+function validateBedLayersWithinRooms(map, roomLayer, errors) {
+    var roomPolys = {};
+    try {
+        roomPolys = collectRoomPolygons(roomLayer);
+    } catch (e) {
+        errors.push("Room 层多边形解析失败：" + e.message);
+        return;
+    }
+
+    var bedLayers = findLayersByPattern(map, BED_OUTPUT_LAYER_PATTERN);
+    for (var li = 0; li < bedLayers.length; li++) {
+        var layer = bedLayers[li];
+        var lm = BED_OUTPUT_LAYER_PATTERN.exec(layer.name);
+        var roomNum = lm[1];
+        var poly = roomPolys[roomNum];
+        if (!poly) {
+            errors.push("Bed_" + roomNum + " 缺少对应的 room_" + roomNum + " 范围");
+            continue;
+        }
+
+        var bedLayer;
+        try {
+            bedLayer = asObjectGroup(layer, layer.name);
+        } catch (e) {
+            errors.push(e.message);
+            continue;
+        }
+
+        var tileSize = map.tileWidth;
+        for (var oi = 0; oi < bedLayer.objectCount; oi++) {
+            var obj = bedLayer.objectAt(oi);
+            var rect;
+            try {
+                rect = parseRect(obj);
+            } catch (e) {
+                errors.push("Bed_" + roomNum + " 对象解析失败：" + e.message);
+                continue;
+            }
+            if (rectWithinPolygon(rect, poly))
+                continue;
+
+            var cx = Math.floor((rect.x + rect.w / 2) / tileSize);
+            var cy = Math.floor((rect.y + rect.h / 2) / tileSize);
+            errors.push("Bed_" + roomNum + " 存在超出 room_" + roomNum +
+                " 范围的图块（约格子 " + cx + ", " + cy + "）");
+        }
+    }
+}
 
 function parseBedName(name) {
     var m = BED_PATTERN.exec(name);
@@ -627,8 +707,10 @@ function validateMap() {
                 errors.push("Bed 层对象命名不符合规范（应为 Bed_N 或 Bed_N_M）：" + (bedName || ("id=" + bedObj.id)));
         }
 
+        validateBedLayersWithinRooms(map, roomLayer, errors);
+
         if (errors.length === 0) {
-            showInfo("验证通过！所有图层命名规范正确。");
+            showInfo("验证通过！图层命名规范正确，且 Bed_1~Bed_8 均在对应 room 范围内。");
         } else {
             showWarning("发现 " + errors.length + " 个问题：\n" + errors.join("\n"));
         }
