@@ -4811,9 +4811,19 @@ interface Session {
  */
 declare namespace tiled {
   /**
-   * Currently used version of Tiled.
+   * Currently used Tiled baseline version (map format `tiledversion`).
    */
   export const version: string;
+
+  /**
+   * Alias of {@link version}. The upstream Tiled baseline this fork is based on.
+   */
+  export const tiledVersion: string;
+
+  /**
+   * tiled-比心专用版 product version.
+   */
+  export const ghostVersion: string;
 
   /**
    * When given two versions, returns whether the first version comes before

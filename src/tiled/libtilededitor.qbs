@@ -30,7 +30,8 @@ DynamicLibrary {
     cpp.defines: {
         var defs = [
             "TILED_EDITOR_LIBRARY",
-            "TILED_VERSION=" + project.version,
+            "TILED_VERSION=" + project.tiledVersion,
+            "GHOST_VERSION=" + project.ghostVersion,
             "QT_DISABLE_DEPRECATED_BEFORE=0x050F00",
             "QT_NO_DEPRECATED_WARNINGS",
             "QT_NO_CAST_FROM_ASCII",
@@ -255,6 +256,8 @@ DynamicLibrary {
         "flipmapobjects.h",
         "geometry.cpp",
         "geometry.h",
+        "ghostversion.cpp",
+        "ghostversion.h",
         "grouplayeritem.cpp",
         "grouplayeritem.h",
         "iconcheckdelegate.cpp",

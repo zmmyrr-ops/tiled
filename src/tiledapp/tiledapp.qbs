@@ -6,7 +6,7 @@ import qbs.Utilities
 TiledQtGuiApplication {
     name: "tiled"
     targetName: name
-    version: project.version
+    version: project.ghostVersion
     consoleApplication: false
 
     Depends { name: "libtilededitor" }
@@ -62,12 +62,12 @@ TiledQtGuiApplication {
 
         texttemplate.outputTag: "rc"
         texttemplate.dict: {
-            var versionArray = project.version.split(".");
+            var versionArray = project.ghostVersion.split(".");
             if (versionArray.length == 3)
                 versionArray.push("0");
 
             return {
-                version: project.version,
+                version: project.ghostVersion,
                 version_csv: versionArray.join(",")
             };
         }

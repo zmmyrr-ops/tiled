@@ -7,7 +7,11 @@ Project {
     // Qbs 1.23 adds the required /permissive- flag for MSVC automatically.
     minimumQbsVersion: qbs.toolchain.contains("msvc") ? "1.23" : "1.18"
 
-    property string version: Environment.getEnv("TILED_VERSION") || "1.12.2";
+    // Tiled upstream baseline (map format tiledversion, update checker).
+    property string tiledVersion: Environment.getEnv("TILED_VERSION") || "1.12.2"
+    // tiled-比心专用版 product version.
+    property string ghostVersion: Environment.getEnv("GHOST_VERSION") || "1.0.0"
+    property string version: tiledVersion
     property bool snapshot: Environment.getEnv("TILED_SNAPSHOT") == "true"
     property bool release: Environment.getEnv("TILED_RELEASE") == "true"
     property string libDir: "lib"

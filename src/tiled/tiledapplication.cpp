@@ -49,7 +49,9 @@ TiledApplication::TiledApplication(int &argc, char **argv)
 #else
     setApplicationName(QLatin1String("tiled"));
 #endif
-    setApplicationDisplayName(QLatin1String("Tiled"));
+    setApplicationDisplayName(QLatin1String("tiled-比心专用版"));
+    // Keep Qt applicationVersion on the Tiled baseline so map files still
+    // write tiledversion=1.x and the upstream update checker stays valid.
     setApplicationVersion(QLatin1String(AS_STRING(TILED_VERSION)));
     setDesktopFileName(QLatin1String("org.mapeditor.Tiled"));
 

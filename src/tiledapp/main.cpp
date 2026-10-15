@@ -22,6 +22,7 @@
 
 #include "commandlineparser.h"
 #include "exporthelper.h"
+#include "ghostversion.h"
 #include "logginginterface.h"
 #include "mainwindow.h"
 #include "mapformat.h"
@@ -259,7 +260,7 @@ void CommandLineHandler::showVersion()
     if (!showedVersion) {
         showedVersion = true;
         stdOut() << QApplication::applicationDisplayName() << " "
-                 << QApplication::applicationVersion() << Qt::endl;
+                 << ghostVersionDisplay() << Qt::endl;
         quit = true;
     }
 }

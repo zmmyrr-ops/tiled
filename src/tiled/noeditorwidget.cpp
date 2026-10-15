@@ -24,6 +24,7 @@
 #include "actionmanager.h"
 #include "documentmanager.h"
 #include "mainwindow.h"
+#include "ghostversion.h"
 #include "stylehelper.h"
 #include "tiledproxystyle.h"
 
@@ -46,7 +47,9 @@ NoEditorWidget::NoEditorWidget(QWidget *parent) :
     opacityEffect->setOpacity(0.25);
     ui->logo->setGraphicsEffect(opacityEffect);
 
-    ui->versionLabel->setText(QStringLiteral("%1 %2").arg(QGuiApplication::applicationDisplayName(), QGuiApplication::applicationVersion()));
+    ui->versionLabel->setText(QStringLiteral("%1 %2")
+                                 .arg(QGuiApplication::applicationDisplayName(),
+                                      ghostVersionDisplay()));
 
     connect(ui->newProjectButton, &QToolButton::clicked, ActionManager::action("NewProject"), &QAction::trigger);
 

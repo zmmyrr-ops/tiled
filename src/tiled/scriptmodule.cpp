@@ -26,6 +26,7 @@
 #include "documentmanager.h"
 #include "editabletile.h"
 #include "editabletileset.h"
+#include "ghostversion.h"
 #include "issuesmodel.h"
 #include "logginginterface.h"
 #include "mainwindow.h"
@@ -88,7 +89,17 @@ ScriptModule::~ScriptModule()
 
 QString ScriptModule::version() const
 {
-    return QCoreApplication::applicationVersion();
+    return tiledBaselineVersion();
+}
+
+QString ScriptModule::tiledVersion() const
+{
+    return tiledBaselineVersion();
+}
+
+QString ScriptModule::ghostVersion() const
+{
+    return ghostProductVersion();
 }
 
 QString ScriptModule::qtVersion() const
