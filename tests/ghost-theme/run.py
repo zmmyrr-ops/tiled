@@ -78,7 +78,24 @@ var placed=1;
 for(var yy=1000;yy<4200&&placed<3;yy+=800)for(var xx=250;xx<4400&&placed<3;xx+=1700){try{GhostTheme.place(map,[9,11,21][placed],xx,yy,1);placed++;}catch(e){}}
 assert(placed===3,'could not place test devices');
 GhostTheme.scatter(map,opts);
-var bad=tiled.mapFormat('tmx').read(input.replace('Map_1.tmx','Map_4.tmx'));rejected=false;try{GhostTheme.applyTheme(bad);}catch(e){rejected=true;}assert(rejected,'non-square background stretched');
+// Wide and tall maps use an owned source crop and fill the map without overflow.
+[[60,30],[30,60],[40,53]].forEach(function(size){
+ var rectMap=tiled.mapFormat('tmx').read(input);rectMap.setSize(size[0],size[1]);rectMap.layers.forEach(function(l){if(l.isTileLayer)l.resize({width:size[0],height:size[1]},{x:0,y:0});});
+ GhostTheme.applyTheme(rectMap);var bg=find(rectMap,'GhostTheme_Base').objectAt(0),crop=bg.tile.imageRect;
+ assert(bg.x===0&&bg.y===size[1]*100&&bg.width===size[0]*100&&bg.height===size[1]*100,'background does not fill exact map bounds');
+ assert(Math.abs(crop.width/crop.height-bg.width/bg.height)<.001,'background aspect ratio distorted');
+ assert(Math.abs(crop.x*2+crop.width-4800)<=1&&Math.abs(crop.y*2+crop.height-4800)<=1,'crop not centered');
+ assert(crop.width===4800||crop.height===4800,'background unnecessarily cropped on both axes');
+ var decor=rectMap.tilesets.filter(function(t){return t.name==='abandoned-decorations-formal';})[0];
+ assert(decor.tile(0).width===4800&&decor.tile(0).height===4800,'shared background modified');
+ var cropTile=bg.tile,count=rectMap.tilesets.length;GhostTheme.applyTheme(rectMap);
+ assert(bg.tile===cropTile&&rectMap.tilesets.length===count,'reapplying duplicates crop tilesets');
+ var path=output+'.'+size[0]+'x'+size[1]+'.tmx';tiled.mapFormat('tmx').write(rectMap,path);
+ var reopened=tiled.mapFormat('tmx').read(path),saved=find(reopened,'GhostTheme_Base').objectAt(0).tile.imageRect;
+ assert(saved.x===crop.x&&saved.y===crop.y&&saved.width===crop.width&&saved.height===crop.height,'save/reopen lost background crop');
+});
+var rectangle=tiled.mapFormat('tmx').read(input.replace('Map_1.tmx','Map_4.tmx'));GhostTheme.applyTheme(rectangle);
+assert(find(rectangle,'GhostTheme_Base').objectCount===1,'real non-square map failed');
 tiled.mapFormat('tmx').write(map,output);
 var reloaded=tiled.mapFormat('tmx').read(output);assert(find(reloaded,'GhostTheme_Props').objectCount===3,'save/reopen lost props');
 assert(find(reloaded,'GhostTheme_Scatter').objects.every(function(o){return o.tile!==null;}),'save/reopen lost tile references');
@@ -150,3 +167,20 @@ with tempfile.TemporaryDirectory() as tmp:
  bake_theme(output,target)
  assert Renderer(document,output).render().tobytes()==Renderer(ET.parse(target).getroot(),target).render().tobytes(),'Display export lost background pixels'
 print('BACKGROUND_PIXELS_OK four corners, original corridor/frame, display export')
+
+# Verify cropped background pixels and the normal display pipeline, not just geometry.
+for width,height in [(60,30),(30,60),(40,53)]:
+ path=Path(str(output)+f'.{width}x{height}.tmx')
+ doc=ET.parse(path).getroot()
+ for child in list(doc):
+  if child.tag in {'layer','objectgroup'} and child.get('name')!='GhostTheme_Base':doc.remove(child)
+ rendered=Renderer(doc,path).render()
+ with Image.open(root/'Map_img/themes/abandoned/background.jpg') as bg:
+  scale=max(width*100/bg.width,height*100/bg.height)
+  cw=round(width*100/scale);ch=round(height*100/scale);x=(bg.width-cw)//2;y=(bg.height-ch)//2
+  expected=bg.convert('RGBA').crop((x,y,x+cw,y+ch)).resize((width*100,height*100),Image.Resampling.LANCZOS)
+  assert rendered.tobytes()==expected.tobytes(),f'Incorrect crop pixels: {width}x{height}'
+ with tempfile.TemporaryDirectory() as tmp:
+  target=Path(tmp)/'display/Map_model/Map_1.tmx';bake_theme(path,target)
+  assert Renderer(ET.parse(path).getroot(),path).render().tobytes()==Renderer(ET.parse(target).getroot(),target).render().tobytes(),'Rectangular display export lost pixels'
+print('RECTANGLE_PIXELS_OK wide, tall, 40x53, save/reopen, display export')

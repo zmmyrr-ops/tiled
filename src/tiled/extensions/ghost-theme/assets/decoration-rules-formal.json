@@ -1,0 +1,45 @@
+{
+  "version": 2,
+  "theme": "autumn-formal",
+  "wallHay": {
+    "sides": [
+      "top",
+      "left",
+      "right"
+    ],
+    "endInset": 4,
+    "stepRatio": 0.78,
+    "wallOverlap": 3
+  },
+  "roomLeafPiles": {
+    "scale": 0.65,
+    "leftAnchorX": 17,
+    "rightAnchorX": 193,
+    "topOverlap": 6,
+    "edgeOverlap": 16,
+    "cornerClearance": 210,
+    "edgeSpacing": 400
+  },
+  "wallGrass": {
+    "sides": [
+      "top",
+      "left",
+      "right",
+      "bottom"
+    ],
+    "scale": 0.85,
+    "spacing": 32,
+    "minPerRow": 3,
+    "maxPerRow": 5,
+    "rowStep": 260,
+    "endInset": 16,
+    "wallOverlap": 6
+  },
+  "randomAccents": {
+    "mixedChance": 0.16,
+    "densityFactor": 0.22,
+    "minSpacing": 180,
+    "minScale": 0.75,
+    "maxScale": 1.0
+  }
+}

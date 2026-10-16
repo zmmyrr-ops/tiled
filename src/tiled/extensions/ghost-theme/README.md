@@ -18,7 +18,9 @@
 
 秋季主题内重新生成支持撤销/重做，保留锁定项与人工对象；应用原始主题会清理所有秋季自动装饰。手动设备默认设置 `ghost.locked=true`（防自动重置，不禁止编辑器拖动）。重置有“未锁定自动装饰”和“全部主题装饰”两种模式。旧版正式素材库会自动升级且保留对象变换；重新点击各生成按钮更新未锁定的旧装饰。
 
-资源路径按地图所在目录的上一级查找 Map_tsx 与规则 JSON。当前支持 100×100 格、有限正交地图、正方形背景和顶层主题图层。
+资源会从地图目录及其上级、已引用图集目录和当前项目目录查找，不再限定地图必须放在 Map_model 下。完整扩展内含 assets；缺少、损坏或过旧的主题素材会自动从内置包补齐到地图旁的 ghost-theme-assets-v1 文件夹，保存后的地图使用相对路径。移动或交付地图时请一并携带这个文件夹。
+
+当前支持 100×100 格、有限正交地图和顶层主题图层。背景按比例铺满地图，超出部分居中裁切，正方形、横版与竖版地图均可应用。裁切只属于当前地图，不改变共享原图；编辑器显示、保存重开和静态显示导出使用相同裁切范围。
 
 ## 验证
 
@@ -38,3 +40,14 @@ python3 tests/ghost-theme/run_ui.py --tiled /path/to/test/Tiled.app/Contents/Mac
 ### 秋季四角背景（2026-10-14）
 
 应用秋季地图时使用带四角固定设备、落叶和南瓜的整张背景。四角内容属于固定背景，不参与设备放置或随机点缀。再次应用会升级旧地图的背景引用，并补齐被清空的背景层。秋季墙地图集保留房间地板与墙体，将旧走廊填充和外框设为透明以显示背景；原始主题仍使用原始图集。
+
+### 资源打包与回归
+
+完整复制 ghost-theme 目录（包括 assets），不要只复制 ghost-theme.js。Qbs 构建会递归安装这些文件，Windows 无需另行安装素材包。更新正式素材后执行：
+
+```sh
+python3 tests/ghost-theme/bundle_assets.py --config-root /path/to/ghost-config
+python3 tests/ghost-theme/run_portable.py --tiled /path/to/test/Tiled.app/Contents/MacOS/Tiled --config-root /path/to/ghost-config
+```
+
+资源回归覆盖嵌套目录、中文路径、缺失素材、损坏 TSX、缺失图片、损坏 JSON，以及移动地图与自动补齐素材后重开。主回归同时验证横版、竖版与 40×53 地图的背景像素和显示导出；UI 回归验证裁切撤销/重做。显示导出需配套更新 ghost-config/theme_bake.py，以读取 TMX 中的图片裁切区域。本仓库 dist/ghost-theme/ghost-config/theme_bake.py 提供可直接覆盖的已验证发布副本。

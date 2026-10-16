@@ -10,15 +10,52 @@ var GhostTheme = (function () {
         if(!map.fileName&&!headlessRoot)throw new Error('请先保存地图');
         if(map.tileWidth!==100 || map.tileHeight!==100)throw new Error('试用主题目前按 100×100 格制作');
     }
+    // Capture during evaluation: __filename is not available in later UI callbacks.
+    var bundledRoot=typeof __filename==='string'?FileInfo.joinPaths(FileInfo.path(__filename),'assets'):null;
+    function resourceRoots(map) {
+        var roots=[];
+        function add(path){path=FileInfo.cleanPath(path);if(roots.indexOf(path)<0)roots.push(path);}
+        function ancestors(path){for(var i=0;path&&i<20;i++){add(path);var parent=FileInfo.path(path);if(parent===path||parent==='.')break;path=parent;}}
+        if(headlessRoot)add(headlessRoot);
+        if(map.fileName){var dir=FileInfo.path(map.fileName);add(dir);add(FileInfo.joinPaths(dir,'ghost-theme-assets-v1'));ancestors(dir);}
+        map.tilesets.forEach(function(ts){if(ts&&ts.fileName)ancestors(FileInfo.path(ts.fileName));});
+        if(tiled.projectFilePath)ancestors(FileInfo.path(tiled.projectFilePath));
+        return roots;
+    }
+    function localBundle(map) {
+        if(!bundledRoot||!File.exists(FileInfo.joinPaths(bundledRoot,'decoration-rules-formal.json')))return null;
+        // Keep saved TMX references portable, independent of the editor installation.
+        var dest=FileInfo.joinPaths(FileInfo.path(map.fileName),'ghost-theme-assets-v1');
+        try{if(!File.copy(bundledRoot,dest))throw new Error('复制失败');}
+        catch(e){throw new Error('无法将内置主题素材复制到地图旁，请检查目录写入权限：'+dest+'（'+e.message+'）');}
+        return dest;
+    }
+    function validTileset(ts,file) {
+        if(!ts||!ts.tileCount)return false;
+        if(file==='abandoned-decorations-formal.tsx'&&(ts.property('ghost.catalogVersion')!==4||ts.tileCount<37))return false;
+        if(file==='abandoned-map03-formal.tsx'&&ts.property('ghost.backgroundMode')!=='corners-v1')return false;
+        // A readable TSX can still refer to missing or invalid images.
+        return ts.tiles.every(function(t){return t.image.width>0&&t.image.height>0;});
+    }
+    function readTileset(map,file) {
+        var roots=resourceRoots(map),failures=[];
+        function read(root){
+            var path=FileInfo.joinPaths(root,'Map_tsx',file);
+            if(!File.exists(path))return null;
+            try{var format=tiled.tilesetFormatForFile(path),ts=format&&format.read(path);
+                if(!validTileset(ts,file))throw new Error('素材版本过旧或图片缺失');
+                retainedTilesets.push(ts);return ts;
+            }catch(e){failures.push(path+'（'+e.message+'）');return null;}
+        }
+        for(var i=0;i<roots.length;i++){var ts=read(roots[i]);if(ts)return ts;}
+        var fallback=localBundle(map);if(fallback){var ts=read(fallback);if(ts)return ts;}
+        throw new Error('无法加载主题图集 '+file+'。'+(failures.length?failures.join('；'):'未找到 Map_tsx，请安装完整 ghost-theme 扩展（含 assets 素材目录）'));
+    }
     function load(map, file) {
-        var path=FileInfo.cleanPath(FileInfo.joinPaths(headlessRoot || FileInfo.cleanPath(FileInfo.joinPaths(FileInfo.path(map.fileName),'..')),'Map_tsx',file));
         var existing=null;
-        for(var i=0;i<map.tilesets.length;i++)if(map.tilesets[i]&&(FileInfo.cleanPath(map.tilesets[i].fileName)===path||map.tilesets[i].name===file.replace('.tsx',''))){existing=map.tilesets[i];break;}
-        var decorFile=file==='abandoned-decorations-formal.tsx',wallFile=file==='abandoned-map03-formal.tsx';
-        if(existing&&(!decorFile||existing.property('ghost.catalogVersion')===4)&&(!wallFile||existing.property('ghost.backgroundMode')==='corners-v1'))return existing;
-        var format=tiled.tilesetFormatForFile(path);if(!format)throw new Error('无法读取图集 '+path);
-        var ts=format.read(path);if(ts)retainedTilesets.push(ts);if(!ts)throw new Error('缺少主题素材，请先安装 ghost-config 主题包：'+path);
-        if(decorFile&&(ts.property('ghost.catalogVersion')!==4||ts.tileCount<37)||wallFile&&ts.property('ghost.backgroundMode')!=='corners-v1')throw new Error('主题素材库版本过旧，请更新地图所在目录的主题资源：'+path);
+        for(var i=0;i<map.tilesets.length;i++)if(map.tilesets[i]&&map.tilesets[i].name===file.replace('.tsx','')){existing=map.tilesets[i];break;}
+        if(validTileset(existing,file))return existing;
+        var ts=readTileset(map,file);
         if(existing)map.macro('更新主题素材库',function(){if(!map.replaceTileset(existing,ts))throw new Error('更新主题图集失败');});
         return ts;
     }
@@ -41,9 +78,25 @@ var GhostTheme = (function () {
     function setAutumnLayers(map, visible) {
         ['Base','Edges','Scatter','RoomLeaves','Grass','Props','Components','Scenes'].forEach(function(suffix){var l=layer(map,PREFIX+suffix);if(l)l.visible=visible;});
     }
+    function fittedBackground(map,source) {
+        var width=map.width*map.tileWidth,height=map.height*map.tileHeight;
+        var scale=Math.max(width/source.width,height/source.height);
+        var cw=Math.min(source.width,Math.round(width/scale)),ch=Math.min(source.height,Math.round(height/scale));
+        if(cw===source.width&&ch===source.height)return source;
+        var rect={x:Math.floor((source.width-cw)/2),y:Math.floor((source.height-ch)/2),width:cw,height:ch};
+        var name='ghost-theme-background',existing=map.tilesets.filter(function(ts){return ts.name===name;})[0];
+        var tile=existing&&existing.tile(0),r=tile&&tile.imageRect;
+        if(tile&&tile.imageFileName===source.imageFileName&&r.x===rect.x&&r.y===rect.y&&r.width===cw&&r.height===ch)return tile;
+        // Each map owns its crop; never modify the shared decorations tileset.
+        var ts=new Tileset(name);ts.objectAlignment=Tileset.BottomLeft;tile=ts.addTile();
+        tile.imageFileName=source.imageFileName;tile.imageRect=rect;
+        tile.setProperty('ghost.category','background');tile.setProperty('ghost.key',source.property('ghost.key'));
+        retainedTilesets.push(ts);
+        if(existing){if(!map.replaceTileset(existing,ts))throw new Error('更新背景裁切失败');}else map.addTileset(ts);
+        return tile;
+    }
     function applyTheme(map) {
         requireMap(map);
-        if(map.width!==map.height)throw new Error('整张参考底图只适配正方形地图；长方形地图需先制作对应比例底图');
         // Include embedded legacy tileset upgrades in the same undo operation.
         map.macro('切换到秋季地图主题',function(){
         var walls=load(map,'abandoned-map03-formal.tsx'),decor=load(map,'abandoned-decorations-formal.tsx');
@@ -51,6 +104,7 @@ var GhostTheme = (function () {
         if(!old.length && !map.tilesets.some(function(t){return t&&(t.name==='abandoned-map01'||t.name==='abandoned-map03-formal');}))throw new Error('未找到 map01 图集，暂不自动替换其他主题');
         var backgroundTile=decor.tile(0);
         if(!backgroundTile||!backgroundTile.image.width||!backgroundTile.image.height)throw new Error('秋季四角背景图片缺失，请更新主题资源');
+        backgroundTile=fittedBackground(map,backgroundTile);
             old.forEach(function(t){if(t===walls)return;if(!map.replaceTileset(t,walls))throw new Error('替换图集失败');});if(map.tilesets.indexOf(decor)<0)map.addTileset(decor);
             // Old ground contains stray floor cells in the outer border. Reveal the new base there.
             var ground=layer(map,'Ground'),floors=layer(map,'Floor'),polys=[];
@@ -143,12 +197,20 @@ var GhostTheme = (function () {
         }return mask;
     }
     function rules(map) {
-        var root=headlessRoot||FileInfo.cleanPath(FileInfo.joinPaths(FileInfo.path(map.fileName),'..'));
-        var path=FileInfo.joinPaths(root,'decoration-rules-formal.json');
-        if(!File.exists(path))throw new Error('缺少装饰规则文件：'+path);
-        var f=new TextFile(path,TextFile.ReadOnly),config;
-        try {config=JSON.parse(f.readAll());} catch(e) {throw new Error('装饰规则不是有效 JSON，请检查文件中是否混入说明文字：'+path);} finally {f.close();}
-        if(!config||config.version!==2||!config.wallHay||!config.roomLeafPiles||!config.wallGrass)throw new Error('装饰规则版本不匹配，请更新地图所在目录的主题资源：'+path);
+        var roots=resourceRoots(map),failures=[];
+        function read(root){
+            var path=FileInfo.joinPaths(root,'decoration-rules-formal.json');
+            if(!File.exists(path))return null;
+            var f=null;
+            try{f=new TextFile(path,TextFile.ReadOnly);var config=JSON.parse(f.readAll());
+                if(!config||config.version!==2||!config.wallHay||!config.roomLeafPiles||!config.wallGrass)throw new Error('规则版本不匹配');
+                return config;
+            }catch(e){failures.push(path+'（'+e.message+'）');return null;}finally{if(f)f.close();}
+        }
+        var config=null;
+        for(var i=0;i<roots.length&&!config;i++)config=read(roots[i]);
+        if(!config){var fallback=localBundle(map);if(fallback)config=read(fallback);}
+        if(!config)throw new Error('无法加载装饰规则，请安装完整主题素材。'+failures.join('；'));
         return config;
     }
     function roomPolygons(map) {

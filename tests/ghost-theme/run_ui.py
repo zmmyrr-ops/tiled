@@ -71,7 +71,17 @@ tiled.assetOpened.connect(function(map){
   tiled.trigger('Undo');assert(props.objectCount===n+1,'undo failed');tiled.trigger('Redo');assert(props.objectCount===n+2,'redo failed');
   tool=GhostTheme.beginPlacement(map,21,.75);
   tool.keyPressed(Qt.Key_Escape,0);assert(tiled.mapEditor.selectedTool!==tiled.mapEditor.tool('GhostTheme_PlaceProp'),'escape did not stop');
-  result='GUI_TEST_OK exclusive theme pages, browse without mutation, original cleanup, theme undo, single placement, auto-stop, selection, repeat-click ignored, flip, outside-map placement, overlapping devices, undo/redo, cancel; panel height='+panel.height;panel.accept();
+  // Rectangular crops participate in the same undo transaction as theme switching.
+  map.resize({width:60,height:30});
+  var oldBackground=find('GhostTheme_Base').objectAt(0),oldTile=oldBackground.tile,oldWidth=oldBackground.width;
+  GhostTheme.applyTheme(map);
+  var croppedTile=oldBackground.tile;
+  assert(croppedTile!==oldTile&&croppedTile.imageRect.height===2400&&oldBackground.width===6000,'wide crop not applied');
+  tiled.trigger('Undo');assert(oldBackground.tile===oldTile&&oldBackground.width===oldWidth,'crop undo failed');
+  tiled.trigger('Redo');assert(oldBackground.tile.imageRect.height===2400&&oldBackground.width===6000,'crop redo failed');
+  GhostTheme.applyOriginalTheme(map);assert(!find('GhostTheme_Base').visible,'cropped background remains in original');
+  tiled.trigger('Undo');assert(find('GhostTheme_Base').visible&&oldBackground.tile.imageRect.height===2400,'original undo lost crop');
+  result='GUI_TEST_OK exclusive theme pages, browse without mutation, original cleanup, theme undo, single placement, auto-stop, selection, repeat-click ignored, flip, outside-map placement, overlapping devices, undo/redo, cancel, rectangular background undo/redo; panel height='+panel.height;panel.accept();
  }catch(e){result='FAIL '+e.message+'\\n'+e.stack;}
  var f=new TextFile(MARKER,TextFile.WriteOnly);f.write(result);f.commit();
 });
