@@ -11,7 +11,7 @@ from pathlib import Path
 import xml.etree.ElementTree as ET
 from PIL import Image, ImageOps
 
-THEME_LAYERS = {'GhostTheme_Base', 'GhostTheme_Edges', 'GhostTheme_Scatter', 'GhostTheme_Props', 'GhostTheme_RoomLeaves', 'GhostTheme_Grass', 'GhostTheme_Components', 'GhostTheme_Scenes'}
+THEME_LAYERS = {'GhostTheme_Base', 'GhostTheme_Corners', 'GhostTheme_Edges', 'GhostTheme_Scatter', 'GhostTheme_Props', 'GhostTheme_RoomLeaves', 'GhostTheme_Grass', 'GhostTheme_Components', 'GhostTheme_Scenes'}
 VISUAL_LAYERS = {'Ground', 'Decorate'} | THEME_LAYERS
 FLAGS = 0xF0000000
 ALIGNMENTS = {'topleft':(0,0), 'top':(.5,0), 'topright':(1,0), 'left':(0,.5), 'center':(.5,.5), 'right':(1,.5), 'bottomleft':(0,1), 'bottom':(.5,1), 'bottomright':(1,1), 'unspecified':(0,1)}

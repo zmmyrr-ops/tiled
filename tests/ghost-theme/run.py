@@ -14,18 +14,19 @@ var oldDecor=legacy.tilesets.filter(function(t){return t.name==='abandoned-decor
 var legacyProp=find(legacy,'GhostTheme_Props').objectAt(0);legacyProp.x+=17;legacyProp.tileFlippedHorizontally=true;var oldX=legacyProp.x;
 GhostTheme.grass(legacy,20261012);
 assert(legacyProp.x===oldX&&legacyProp.tileFlippedHorizontally&&legacyProp.tile.tileset!==oldDecor,'catalog upgrade lost manual transforms or retained old tileset');
-assert(legacy.tilesets.some(function(t){return t&&t.name==='abandoned-decorations-formal'&&t.tileCount===37&&t.property('ghost.catalogVersion')===4;}),'legacy embedded tileset not upgraded');
-assert(find(legacy,'GhostTheme_Base').objectAt(0).tile.id===0,'upgrade changed background tile');
+assert(legacy.tilesets.some(function(t){return t&&t.name==='abandoned-decorations-formal'&&t.tileCount>=45&&t.property('ghost.catalogVersion')===5;}),'legacy embedded tileset not upgraded');
+assert(find(legacy,'GhostTheme_Base').objectCount>=1,'upgrade removed the background layer');
 GhostTheme.applyTheme(legacy);
 assert(legacy.tilesets.some(function(t){return t.name==='abandoned-map03-formal'&&t.property('ghost.backgroundMode')==='corners-v1';}),'legacy opaque wall atlas not upgraded');
-assert(find(legacy,'GhostTheme_Base').objectAt(0).tile.property('ghost.key')==='background-corners.jpg','wrong background in existing autumn map');
+assert(find(legacy,'GhostTheme_Base').objects.some(function(o){return o.property('ghost.backgroundPiece')&&o.tile.property('ghost.key').indexOf('backgroundcorners_')===0&&o.tile.image.width<=2048;}),'wrong background in existing autumn map');
 var map=tiled.mapFormat('tmx').read(input);
 // Existing empty/moved/hidden background layers must be repaired by Apply.
 var emptyBase=new ObjectGroup('GhostTheme_Base');map.addLayer(emptyBase);emptyBase.opacity=0;emptyBase.visible=false;emptyBase.offset={x:100,y:200};
 GhostTheme.applyTheme(map);
 var appliedBase=find(map,'GhostTheme_Base');
-assert(map.layerAt(0)===appliedBase&&appliedBase.objectCount===1&&appliedBase.visible&&appliedBase.opacity===1&&appliedBase.offset.x===0&&appliedBase.offset.y===0,'background not repaired');
-assert(appliedBase.objectAt(0).tile.property('ghost.key')==='background-corners.jpg','wrong four-corner background');
+assert(map.layerAt(0)===appliedBase&&appliedBase.objectCount===9&&appliedBase.visible&&appliedBase.opacity===1&&appliedBase.offset.x===0&&appliedBase.offset.y===0,'background not repaired');
+assert(appliedBase.objectAt(0).tile.property('ghost.key')==='backgroundcorners_01.png'&&appliedBase.objectAt(8).tile.property('ghost.key')==='backgroundcorners_09.png','wrong background base');
+assert(!find(map,'GhostTheme_Corners'),'corner layer still present');
 assert(find(map,'Ground').tileAt(5,5).id===7&&find(map,'Ground').tileAt(0,0).id===63,'background fix destroyed corridor or frame cells');
 var n=map.layerCount;GhostTheme.applyTheme(map);assert(map.layerCount===n,'theme application duplicated layers');
 var opts={seed:20261012,density:18,category:'mixed'};
@@ -81,21 +82,26 @@ GhostTheme.scatter(map,opts);
 // Wide and tall maps use an owned source crop and fill the map without overflow.
 [[60,30],[30,60],[40,53]].forEach(function(size){
  var rectMap=tiled.mapFormat('tmx').read(input);rectMap.setSize(size[0],size[1]);rectMap.layers.forEach(function(l){if(l.isTileLayer)l.resize({width:size[0],height:size[1]},{x:0,y:0});});
- GhostTheme.applyTheme(rectMap);var bg=find(rectMap,'GhostTheme_Base').objectAt(0),crop=bg.tile.imageRect;
- assert(bg.x===0&&bg.y===size[1]*100&&bg.width===size[0]*100&&bg.height===size[1]*100,'background does not fill exact map bounds');
- assert(Math.abs(crop.width/crop.height-bg.width/bg.height)<.001,'background aspect ratio distorted');
- assert(Math.abs(crop.x*2+crop.width-4800)<=1&&Math.abs(crop.y*2+crop.height-4800)<=1,'crop not centered');
- assert(crop.width===4800||crop.height===4800,'background unnecessarily cropped on both axes');
+ GhostTheme.applyTheme(rectMap);
+ function piecesOf(target){return find(target,'GhostTheme_Base').objects.filter(function(o){return o.property('ghost.backgroundPiece');});}
+ var pieces=piecesOf(rectMap),minX=Infinity,minY=Infinity,maxR=-Infinity,maxB=-Infinity;
+ assert(pieces.length>1,'background pieces missing');
+ pieces.forEach(function(o){
+  var top=o.y-o.height;minX=Math.min(minX,o.x);minY=Math.min(minY,top);maxR=Math.max(maxR,o.x+o.width);maxB=Math.max(maxB,o.y);
+  assert(o.tile.image.width<=2048&&o.tile.image.height<=2048,'piece texture exceeds 2048');
+  assert(o.tile.imageRect.width<=1600&&o.tile.imageRect.height<=1600,'piece rect exceeds a source square');
+ });
+ assert(Math.abs(minX)<.01&&Math.abs(minY)<.01&&Math.abs(maxR-size[0]*100)<.01&&Math.abs(maxB-size[1]*100)<.01,'pieces do not fill the map');
  var decor=rectMap.tilesets.filter(function(t){return t.name==='abandoned-decorations-formal';})[0];
- assert(decor.tile(0).width===4800&&decor.tile(0).height===4800,'shared background modified');
- var cropTile=bg.tile,count=rectMap.tilesets.length;GhostTheme.applyTheme(rectMap);
- assert(bg.tile===cropTile&&rectMap.tilesets.length===count,'reapplying duplicates crop tilesets');
+ assert(decor.tile(37).width===1600&&decor.tile(37).height===1600,'shared background piece modified');
+ var pieceCount=pieces.length,count=rectMap.tilesets.length,firstRect=pieces[0].tile.imageRect;GhostTheme.applyTheme(rectMap);
+ assert(piecesOf(rectMap).length===pieceCount&&rectMap.tilesets.length===count,'reapplying duplicates background pieces');
  var path=output+'.'+size[0]+'x'+size[1]+'.tmx';tiled.mapFormat('tmx').write(rectMap,path);
- var reopened=tiled.mapFormat('tmx').read(path),saved=find(reopened,'GhostTheme_Base').objectAt(0).tile.imageRect;
- assert(saved.x===crop.x&&saved.y===crop.y&&saved.width===crop.width&&saved.height===crop.height,'save/reopen lost background crop');
+ var reopened=tiled.mapFormat('tmx').read(path),saved=piecesOf(reopened)[0].tile.imageRect;
+ assert(saved.x===firstRect.x&&saved.y===firstRect.y&&saved.width===firstRect.width&&saved.height===firstRect.height,'save/reopen lost background crop');
 });
 var rectangle=tiled.mapFormat('tmx').read(input.replace('Map_1.tmx','Map_4.tmx'));GhostTheme.applyTheme(rectangle);
-assert(find(rectangle,'GhostTheme_Base').objectCount===1,'real non-square map failed');
+assert(find(rectangle,'GhostTheme_Base').objects.filter(function(o){return o.property('ghost.backgroundPiece');}).length>1,'real non-square map failed');
 tiled.mapFormat('tmx').write(map,output);
 var reloaded=tiled.mapFormat('tmx').read(output);assert(find(reloaded,'GhostTheme_Props').objectCount===3,'save/reopen lost props');
 assert(find(reloaded,'GhostTheme_Scatter').objects.every(function(o){return o.tile!==null;}),'save/reopen lost tile references');
@@ -142,7 +148,7 @@ with tempfile.TemporaryDirectory() as tmp:
  print(result.stdout);print(result.stderr)
  if 'THEME_TEST_OK' not in result.stdout:raise SystemExit(1)
 
-# Check actual pixels: all four fixed corner scenes must survive the Ground
+# Check actual pixels: the stitched background must survive the Ground
 # overlay and the display export, including after saving/reopening the map.
 sys.path.insert(0,str(root))
 from xml.etree import ElementTree as ET
@@ -153,8 +159,36 @@ base_only=copy.deepcopy(document)
 for child in list(base_only):
  if child.get('name') in THEME_LAYERS-{'GhostTheme_Base'}:base_only.remove(child)
 visible=Renderer(base_only,output).render()
-with Image.open(root/'Map_img/themes/abandoned/background.jpg') as bg:
- expected=bg.convert('RGBA')
+def autumn_background(width,height):
+ source_size,piece=4800,1600
+ scale=max(width/source_size,height/source_size)
+ cw,ch=min(source_size,round(width/scale)),min(source_size,round(height/scale))
+ crop_x,crop_y=(source_size-cw)//2,(source_size-ch)//2
+ specs=[]
+ for index in range(9):
+  col,row=index%3,index//3
+  px,py=col*piece,row*piece
+  ix,iy,ir,ib=max(px,crop_x),max(py,crop_y),min(px+piece,crop_x+cw),min(py+piece,crop_y+ch)
+  if ir<=ix or ib<=iy:continue
+  specs.append({'col':col,'row':row,'file':f'backgroundcorners_{index+1:02d}.png','local':(ix-px,iy-py,ir-ix,ib-iy),
+    'left':(ix-crop_x)*width/cw,'right':(ir-crop_x)*width/cw,'top':(iy-crop_y)*height/ch,'bottom':(ib-crop_y)*height/ch})
+ def snap(group_key,start,end,total,out_start,out_end):
+  groups={}
+  for spec in specs:groups.setdefault(spec[group_key],[]).append(spec)
+  for group in groups.values():
+   group.sort(key=lambda spec:spec[start]);cursor=0
+   for index,spec in enumerate(group):
+    edge=total if index==len(group)-1 else round(spec[end]);spec[out_start],spec[out_end]=cursor,edge;cursor=edge
+ snap('row','left','right',width,'x0','x1');snap('col','top','bottom',height,'y0','y1')
+ base=Image.new('RGBA',(width,height))
+ folder=root/'Map_img/themes/abandoned-formal'
+ for spec in specs:
+  with Image.open(folder/spec['file']) as source:
+   crop=source.convert('RGBA').crop((spec['local'][0],spec['local'][1],spec['local'][0]+spec['local'][2],spec['local'][1]+spec['local'][3]))
+   base.alpha_composite(crop.resize((spec['x1']-spec['x0'],spec['y1']-spec['y0']),Image.Resampling.LANCZOS),(spec['x0'],spec['y0']))
+ return base
+expected=autumn_background(4800,4800)
+with Image.open(root/'Map_img/themes/abandoned-formal/backgroundcorners_01.png'):
  for box in [(0,0,900,900),(3900,0,4800,900),(0,3900,900,4800),(3900,3900,4800,4800)]:
   assert visible.crop(box).tobytes()==expected.crop(box).tobytes(),f'Corner background is covered: {box}'
 original=Path(str(output)+'.original.tmx')
@@ -166,20 +200,17 @@ with tempfile.TemporaryDirectory() as tmp:
  target=Path(tmp)/'display/Map_model/Map_1.tmx'
  bake_theme(output,target)
  assert Renderer(document,output).render().tobytes()==Renderer(ET.parse(target).getroot(),target).render().tobytes(),'Display export lost background pixels'
-print('BACKGROUND_PIXELS_OK four corners, original corridor/frame, display export')
+print('BACKGROUND_PIXELS_OK background pieces, original corridor/frame, display export')
 
 # Verify cropped background pixels and the normal display pipeline, not just geometry.
 for width,height in [(60,30),(30,60),(40,53)]:
  path=Path(str(output)+f'.{width}x{height}.tmx')
  doc=ET.parse(path).getroot()
  for child in list(doc):
-  if child.tag in {'layer','objectgroup'} and child.get('name')!='GhostTheme_Base':doc.remove(child)
+  if child.tag in {'layer','objectgroup'} and child.get('name') not in {'GhostTheme_Base'}:doc.remove(child)
  rendered=Renderer(doc,path).render()
- with Image.open(root/'Map_img/themes/abandoned/background.jpg') as bg:
-  scale=max(width*100/bg.width,height*100/bg.height)
-  cw=round(width*100/scale);ch=round(height*100/scale);x=(bg.width-cw)//2;y=(bg.height-ch)//2
-  expected=bg.convert('RGBA').crop((x,y,x+cw,y+ch)).resize((width*100,height*100),Image.Resampling.LANCZOS)
-  assert rendered.tobytes()==expected.tobytes(),f'Incorrect crop pixels: {width}x{height}'
+ expected=autumn_background(width*100,height*100)
+ assert rendered.tobytes()==expected.tobytes(),f'Incorrect crop pixels: {width}x{height}'
  with tempfile.TemporaryDirectory() as tmp:
   target=Path(tmp)/'display/Map_model/Map_1.tmx';bake_theme(path,target)
   assert Renderer(ET.parse(path).getroot(),path).render().tobytes()==Renderer(ET.parse(target).getroot(),target).render().tobytes(),'Rectangular display export lost pixels'

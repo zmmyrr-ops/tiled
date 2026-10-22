@@ -1,18 +1,9 @@
 <?xml version='1.0' encoding='utf-8'?>
-<tileset version="1.10" tiledversion="1.12.2" name="abandoned-decorations-formal" tilewidth="4800" tileheight="4800" tilecount="37" columns="0" objectalignment="bottomleft">
+<tileset version="1.10" tiledversion="1.12.2" name="abandoned-decorations-formal" tilewidth="1800" tileheight="1800" tilecount="45" columns="0" objectalignment="bottomleft">
   <properties>
-    <property name="ghost.catalogVersion" type="int" value="4" />
+    <property name="ghost.catalogVersion" type="int" value="5" />
   </properties>
   <grid orientation="orthogonal" width="1" height="1" />
-  <tile id="0">
-    <properties>
-      <property name="ghost.key" value="background-corners.jpg" />
-      <property name="ghost.label" value="秋季背景（含四角设备）" />
-      <property name="ghost.category" value="background" />
-      <property name="ghost.defaultScale" type="float" value="1" />
-    </properties>
-    <image source="../Map_img/themes/abandoned-formal/background-corners.jpg" width="4800" height="4800" />
-  </tile>
   <tile id="1">
     <properties>
       <property name="ghost.key" value="中间落叶.png" />
@@ -336,5 +327,86 @@
       <property name="ghost.defaultScale" type="float" value="1" />
     </properties>
     <image source="../Map_img/themes/abandoned-formal/碎叶8.png" width="14" height="12" />
+  </tile>
+  <tile id="37">
+    <properties>
+      <property name="ghost.key" value="backgroundcorners_01.png" />
+      <property name="ghost.label" value="背景散图 0,0" />
+      <property name="ghost.category" value="background" />
+      <property name="ghost.backgroundPiece" value="0,0" />
+    </properties>
+    <image source="../Map_img/themes/abandoned-formal/backgroundcorners_01.png" width="1600" height="1600" />
+  </tile>
+  <tile id="38">
+    <properties>
+      <property name="ghost.key" value="backgroundcorners_02.png" />
+      <property name="ghost.label" value="背景散图 1,0" />
+      <property name="ghost.category" value="background" />
+      <property name="ghost.backgroundPiece" value="1,0" />
+    </properties>
+    <image source="../Map_img/themes/abandoned-formal/backgroundcorners_02.png" width="1600" height="1600" />
+  </tile>
+  <tile id="39">
+    <properties>
+      <property name="ghost.key" value="backgroundcorners_03.png" />
+      <property name="ghost.label" value="背景散图 2,0" />
+      <property name="ghost.category" value="background" />
+      <property name="ghost.backgroundPiece" value="2,0" />
+    </properties>
+    <image source="../Map_img/themes/abandoned-formal/backgroundcorners_03.png" width="1600" height="1600" />
+  </tile>
+  <tile id="40">
+    <properties>
+      <property name="ghost.key" value="backgroundcorners_04.png" />
+      <property name="ghost.label" value="背景散图 0,1" />
+      <property name="ghost.category" value="background" />
+      <property name="ghost.backgroundPiece" value="0,1" />
+    </properties>
+    <image source="../Map_img/themes/abandoned-formal/backgroundcorners_04.png" width="1600" height="1600" />
+  </tile>
+  <tile id="41">
+    <properties>
+      <property name="ghost.key" value="backgroundcorners_05.png" />
+      <property name="ghost.label" value="背景散图 1,1" />
+      <property name="ghost.category" value="background" />
+      <property name="ghost.backgroundPiece" value="1,1" />
+    </properties>
+    <image source="../Map_img/themes/abandoned-formal/backgroundcorners_05.png" width="1600" height="1600" />
+  </tile>
+  <tile id="42">
+    <properties>
+      <property name="ghost.key" value="backgroundcorners_06.png" />
+      <property name="ghost.label" value="背景散图 2,1" />
+      <property name="ghost.category" value="background" />
+      <property name="ghost.backgroundPiece" value="2,1" />
+    </properties>
+    <image source="../Map_img/themes/abandoned-formal/backgroundcorners_06.png" width="1600" height="1600" />
+  </tile>
+  <tile id="43">
+    <properties>
+      <property name="ghost.key" value="backgroundcorners_07.png" />
+      <property name="ghost.label" value="背景散图 0,2" />
+      <property name="ghost.category" value="background" />
+      <property name="ghost.backgroundPiece" value="0,2" />
+    </properties>
+    <image source="../Map_img/themes/abandoned-formal/backgroundcorners_07.png" width="1600" height="1600" />
+  </tile>
+  <tile id="44">
+    <properties>
+      <property name="ghost.key" value="backgroundcorners_08.png" />
+      <property name="ghost.label" value="背景散图 1,2" />
+      <property name="ghost.category" value="background" />
+      <property name="ghost.backgroundPiece" value="1,2" />
+    </properties>
+    <image source="../Map_img/themes/abandoned-formal/backgroundcorners_08.png" width="1600" height="1600" />
+  </tile>
+  <tile id="45">
+    <properties>
+      <property name="ghost.key" value="backgroundcorners_09.png" />
+      <property name="ghost.label" value="背景散图 2,2" />
+      <property name="ghost.category" value="background" />
+      <property name="ghost.backgroundPiece" value="2,2" />
+    </properties>
+    <image source="../Map_img/themes/abandoned-formal/backgroundcorners_09.png" width="1600" height="1600" />
   </tile>
 </tileset>

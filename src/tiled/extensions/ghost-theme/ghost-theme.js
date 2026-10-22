@@ -12,6 +12,61 @@ var GhostTheme = (function () {
     }
     // Capture during evaluation: __filename is not available in later UI callbacks.
     var bundledRoot=typeof __filename==='string'?FileInfo.joinPaths(FileInfo.path(__filename),'assets'):null;
+    // The SVN project owns the images; bundled TSX files only supply IDs and metadata.
+    var projectImageNames={
+        'map03-overlay.png':'map03overlay.png','中间落叶.png':'zhongjianluoye.png','左上角落叶.png':'zuoshangjiaoluoye.png',
+        '草垛-上.png':'caoduoshang.png','草垛-左.png':'caoduozuo.png','草垛-右.png':'caoduoyou.png',
+        '组合.png':'zuhe.png','生化桶.png':'shenghuatong.png','试管桌组合.png':'shiguanzhuozuhe.png','草 拷贝 11.png':'caokaobei11.png',
+        '纸1.png':'zhi1.png','纸2.png':'zhi2.png','落叶-右上角.png':'luoyeyoushangjiao.png','桶+落叶+骷髅头.png':'tongluoyekuloutou.png',
+        '灭火器组合.png':'miehuoqizuhe.png','生化箱.png':'shenghuaxiang.png','箱子-左.png':'xiangzizuo.png','箱子-左-1.png':'xiangzizuo1.png',
+        '红黄柜.png':'honghuanggui.png','管道.png':'guandao.png','树桩.png':'shuzhuang.png','石碑.png':'shibei.png',
+        '毒蘑菇.png':'dumogu.png','骨堆.png':'gudui.png','左上角装饰.png':'zuoshangjiaozhuangshi.png','右上角装饰.png':'youshangjiaozhuangshi.png',
+        '左下角装饰.png':'zuoxiajiaozhuangshi.png','右下角装饰.png':'youxiajiaozhuangshi.png'
+    };
+    for(var leafIndex=1;leafIndex<=8;leafIndex++)projectImageNames['碎叶'+leafIndex+'.png']='suiye'+leafIndex+'.png';
+    function projectThemeRoot(map) {
+        var roots=resourceRoots(map);
+        for(var i=0;i<roots.length;i++){
+            var root=roots[i],dir=FileInfo.joinPaths(root,'Map_img/themes/abandoned-formal');
+            if(root===bundledRoot||/(^|[\\/])ghost-theme-assets-v\d+([\\/]|$)/.test(root))continue;
+            if(File.exists(dir)&&(File.exists(FileInfo.joinPaths(root,'Map_model'))||
+                File.exists(FileInfo.joinPaths(dir,'map03overlay.png'))||File.exists(FileInfo.joinPaths(dir,'zhongjianluoye.png'))))return root;
+        }
+        return null;
+    }
+    function projectImage(root,file,key) {
+        var relative=file==='map01-original.tsx'?'Map_img/map01.png':
+            'Map_img/themes/abandoned-formal/'+(projectImageNames[key]||key);
+        return FileInfo.joinPaths(root,relative);
+    }
+    function usesProjectImages(ts,root,file) {
+        if(!validTileset(ts,file))return false;
+        if(!ts.isCollection)return ts.imageFileName===projectImage(root,file,'map03-overlay.png');
+        return ts.tiles.every(function(t){return t.imageFileName===projectImage(root,file,t.property('ghost.key'));});
+    }
+    function readProjectTileset(root,file) {
+        var path=bundledRoot&&FileInfo.joinPaths(bundledRoot,'Map_tsx',file);
+        if(!path||!File.exists(path))throw new Error('缺少内置主题定义，请安装完整 ghost-theme 扩展：'+file);
+        var format=tiled.tilesetFormatForFile(path),template=format&&format.read(path);
+        if(!template)throw new Error('无法读取内置主题定义：'+file);
+        var ts=new Tileset(template.name);ts.setProperties(template.properties());
+        ts.tileSize=template.tileSize;ts.objectAlignment=template.objectAlignment;
+        function requireImage(key){var image=projectImage(root,file,key);
+            if(!File.exists(image))throw new Error('项目主题素材缺失：'+image+'。请更新 SVN 素材；不会创建 ghost-theme-assets-v1。');
+            return image;
+        }
+        if(template.isCollection){
+            var gaps=[];
+            template.tiles.slice().sort(function(a,b){return a.id-b.id;}).forEach(function(source){
+                while(ts.nextTileId<source.id)gaps.push(ts.addTile());
+                var tile=ts.addTile();tile.setProperties(source.properties());
+                tile.imageFileName=requireImage(source.property('ghost.key'));
+            });
+            if(gaps.length)ts.removeTiles(gaps);
+        }else ts.imageFileName=requireImage('map03-overlay.png');
+        if(!validTileset(ts,file))throw new Error('项目主题图集或图片无效：'+file);
+        retainedTilesets.push(ts);return ts;
+    }
     function resourceRoots(map) {
         var roots=[];
         function add(path){path=FileInfo.cleanPath(path);if(roots.indexOf(path)<0)roots.push(path);}
@@ -23,6 +78,7 @@ var GhostTheme = (function () {
         return roots;
     }
     function localBundle(map) {
+        if(projectThemeRoot(map))throw new Error('项目已使用 Map_img/themes/abandoned-formal，请更新项目素材；不会创建 ghost-theme-assets-v1。');
         if(!bundledRoot||!File.exists(FileInfo.joinPaths(bundledRoot,'decoration-rules-formal.json')))return null;
         // Keep saved TMX references portable, independent of the editor installation.
         var dest=FileInfo.joinPaths(FileInfo.path(map.fileName),'ghost-theme-assets-v1');
@@ -32,7 +88,7 @@ var GhostTheme = (function () {
     }
     function validTileset(ts,file) {
         if(!ts||!ts.tileCount)return false;
-        if(file==='abandoned-decorations-formal.tsx'&&(ts.property('ghost.catalogVersion')!==4||ts.tileCount<37))return false;
+        if(file==='abandoned-decorations-formal.tsx'&&(ts.property('ghost.catalogVersion')!==5||ts.tileCount<45))return false;
         if(file==='abandoned-map03-formal.tsx'&&ts.property('ghost.backgroundMode')!=='corners-v1')return false;
         // A readable TSX can still refer to missing or invalid images.
         return ts.tiles.every(function(t){return t.image.width>0&&t.image.height>0;});
@@ -54,8 +110,9 @@ var GhostTheme = (function () {
     function load(map, file) {
         var existing=null;
         for(var i=0;i<map.tilesets.length;i++)if(map.tilesets[i]&&map.tilesets[i].name===file.replace('.tsx','')){existing=map.tilesets[i];break;}
-        if(validTileset(existing,file))return existing;
-        var ts=readTileset(map,file);
+        var root=projectThemeRoot(map);
+        if(root?usesProjectImages(existing,root,file):validTileset(existing,file))return existing;
+        var ts=root?readProjectTileset(root,file):readTileset(map,file);
         if(existing)map.macro('更新主题素材库',function(){if(!map.replaceTileset(existing,ts))throw new Error('更新主题图集失败');});
         return ts;
     }
@@ -76,35 +133,86 @@ var GhostTheme = (function () {
         return selected ? selected === 'autumn' : map.property('ghost.theme') === 'abandoned-v1';
     }
     function setAutumnLayers(map, visible) {
-        ['Base','Edges','Scatter','RoomLeaves','Grass','Props','Components','Scenes'].forEach(function(suffix){var l=layer(map,PREFIX+suffix);if(l)l.visible=visible;});
+        ['Base','Corners','Edges','Scatter','RoomLeaves','Grass','Props','Components','Scenes'].forEach(function(suffix){var l=layer(map,PREFIX+suffix);if(l)l.visible=visible;});
     }
-    function fittedBackground(map,source) {
-        var width=map.width*map.tileWidth,height=map.height*map.tileHeight;
-        var scale=Math.max(width/source.width,height/source.height);
-        var cw=Math.min(source.width,Math.round(width/scale)),ch=Math.min(source.height,Math.round(height/scale));
-        if(cw===source.width&&ch===source.height)return source;
-        var rect={x:Math.floor((source.width-cw)/2),y:Math.floor((source.height-ch)/2),width:cw,height:ch};
+    var BACKGROUND_SIZE=4800,PIECE_SIZE=1600,PIECE_COUNT=9;
+    function pieceKey(index){var n=index+1;return 'backgroundcorners_'+(n<10?'0':'')+n+'.png';}
+    function themeImageDirectory(decor){
+        var tile=decor.tile(1);
+        if(!tile||!tile.imageFileName)throw new Error('无法定位主题散图目录');
+        return FileInfo.path(tile.imageFileName);
+    }
+    function backgroundLayout(map){
+        // The authored background is nine 1600px squares, row-major from
+        // backgroundcorners_01.png. Cover-crop them exactly as the old 4800 image.
+        var mapW=map.width*map.tileWidth,mapH=map.height*map.tileHeight;
+        var scale=Math.max(mapW/BACKGROUND_SIZE,mapH/BACKGROUND_SIZE);
+        var cw=Math.min(BACKGROUND_SIZE,Math.round(mapW/scale)),ch=Math.min(BACKGROUND_SIZE,Math.round(mapH/scale));
+        var cropX=Math.floor((BACKGROUND_SIZE-cw)/2),cropY=Math.floor((BACKGROUND_SIZE-ch)/2),specs=[];
+        for(var i=0;i<PIECE_COUNT;i++){
+            var col=i%3,row=Math.floor(i/3),px=col*PIECE_SIZE,py=row*PIECE_SIZE;
+            var ix=Math.max(px,cropX),iy=Math.max(py,cropY),ir=Math.min(px+PIECE_SIZE,cropX+cw),ib=Math.min(py+PIECE_SIZE,cropY+ch);
+            if(ir<=ix||ib<=iy)continue;
+            specs.push({index:i,col:col,row:row,key:pieceKey(i),localX:ix-px,localY:iy-py,localW:ir-ix,localH:ib-iy,
+                left:(ix-cropX)*mapW/cw,right:(ir-cropX)*mapW/cw,top:(iy-cropY)*mapH/ch,bottom:(ib-cropY)*mapH/ch});
+        }
+        function snap(groupKey,startName,endName,total,outStart,outEnd){
+            var groups={};
+            specs.forEach(function(spec){var id=spec[groupKey];(groups[id]||(groups[id]=[])).push(spec);});
+            Object.keys(groups).forEach(function(id){
+                var group=groups[id].sort(function(a,b){return a[startName]-b[startName];}),cursor=0;
+                group.forEach(function(spec,index){
+                    var end=index===group.length-1?total:Math.round(spec[endName]);
+                    spec[outStart]=cursor;spec[outEnd]=end;cursor=end;
+                });
+            });
+        }
+        snap('row','left','right',mapW,'x0','x1');
+        snap('col','top','bottom',mapH,'y0','y1');
+        specs.forEach(function(spec){spec.x=spec.x0;spec.y=spec.y1;spec.width=spec.x1-spec.x0;spec.height=spec.y1-spec.y0;});
+        return specs;
+    }
+    function samePieceRect(rect,spec){
+        return rect&&Number(rect.x)===spec.localX&&Number(rect.y)===spec.localY&&Number(rect.width)===spec.localW&&Number(rect.height)===spec.localH;
+    }
+    function syncPieceTileset(map,specs,dir){
         var name='ghost-theme-background',existing=map.tilesets.filter(function(ts){return ts.name===name;})[0];
-        var tile=existing&&existing.tile(0),r=tile&&tile.imageRect;
-        if(tile&&tile.imageFileName===source.imageFileName&&r.x===rect.x&&r.y===rect.y&&r.width===cw&&r.height===ch)return tile;
-        // Each map owns its crop; never modify the shared decorations tileset.
-        var ts=new Tileset(name);ts.objectAlignment=Tileset.BottomLeft;tile=ts.addTile();
-        tile.imageFileName=source.imageFileName;tile.imageRect=rect;
-        tile.setProperty('ghost.category','background');tile.setProperty('ghost.key',source.property('ghost.key'));
+        function matches(ts){
+            if(!ts||ts.tileCount!==specs.length)return false;
+            for(var i=0;i<specs.length;i++){
+                var tile=ts.tile(i),spec=specs[i];
+                if(!tile||tile.imageFileName!==FileInfo.joinPaths(dir,spec.key)||tile.property('ghost.key')!==spec.key||!samePieceRect(tile.imageRect,spec))return false;
+            }
+            return true;
+        }
+        if(matches(existing))return existing;
+        var ts=new Tileset(name);ts.objectAlignment=Tileset.BottomLeft;
+        specs.forEach(function(spec){
+            var path=FileInfo.joinPaths(dir,spec.key);
+            if(!File.exists(path))throw new Error('秋季背景散图缺失：'+spec.key);
+            var tile=ts.addTile();
+            tile.imageFileName=path;
+            tile.imageRect={x:spec.localX,y:spec.localY,width:spec.localW,height:spec.localH};
+            tile.setProperty('ghost.category','background');
+            tile.setProperty('ghost.key',spec.key);
+            tile.setProperty('ghost.backgroundPiece',spec.col+','+spec.row);
+        });
         retainedTilesets.push(ts);
-        if(existing){if(!map.replaceTileset(existing,ts))throw new Error('更新背景裁切失败');}else map.addTileset(ts);
-        return tile;
+        if(existing){if(!map.replaceTileset(existing,ts))throw new Error('更新背景散图失败');}else map.addTileset(ts);
+        return ts;
     }
     function applyTheme(map) {
         requireMap(map);
+        var failure=null;
         // Include embedded legacy tileset upgrades in the same undo operation.
         map.macro('切换到秋季地图主题',function(){
+        try{
         var walls=load(map,'abandoned-map03-formal.tsx'),decor=load(map,'abandoned-decorations-formal.tsx');
         var old=map.tilesets.filter(function(t){return t&&(t.name==='map01'||t.name==='map01-original'||t.name==='abandoned-map01'||t.name==='abandoned-map03-formal');});
         if(!old.length && !map.tilesets.some(function(t){return t&&(t.name==='abandoned-map01'||t.name==='abandoned-map03-formal');}))throw new Error('未找到 map01 图集，暂不自动替换其他主题');
-        var backgroundTile=decor.tile(0);
-        if(!backgroundTile||!backgroundTile.image.width||!backgroundTile.image.height)throw new Error('秋季四角背景图片缺失，请更新主题资源');
-        backgroundTile=fittedBackground(map,backgroundTile);
+        var pieceDir=themeImageDirectory(decor),specs=backgroundLayout(map);
+        if(!specs.length)throw new Error('秋季背景散图没有可显示的区域');
+        var pieceTiles=syncPieceTileset(map,specs,pieceDir);
             old.forEach(function(t){if(t===walls)return;if(!map.replaceTileset(t,walls))throw new Error('替换图集失败');});if(map.tilesets.indexOf(decor)<0)map.addTileset(decor);
             // Old ground contains stray floor cells in the outer border. Reveal the new base there.
             var ground=layer(map,'Ground'),floors=layer(map,'Floor'),polys=[];
@@ -119,15 +227,27 @@ var GhostTheme = (function () {
             if(base&&!base.isObjectLayer)throw new Error(PREFIX+'Base 必须是对象层');
             if(!base){base=new ObjectGroup(PREFIX+'Base');map.insertLayerAt(0,base);}
             else if(map.layerAt(0)!==base){map.removeLayer(base);map.insertLayerAt(0,base);}
-            base.drawOrder=ObjectGroup.IndexOrder;base.offset={x:0,y:0};base.opacity=1;
-            var bg=base.objects.filter(function(o){return o.tile&&(o.tile.id===0&&o.tile.tileset===decor||o.tile.property('ghost.category')==='background');})[0];
-            if(!bg){bg=object(decor,0,0,map.height*100,1,0);base.addObject(bg);}
-            bg.tile=backgroundTile;bg.x=0;bg.y=map.height*100;bg.width=map.width*100;bg.height=map.height*100;bg.rotation=0;bg.visible=true;
-            bg.tileFlippedHorizontally=false;bg.tileFlippedVertically=false;
-            bg.setProperty('ghost.assetKey',backgroundTile.property('ghost.key'));
+            base.drawOrder=ObjectGroup.IndexOrder;base.offset={x:0,y:0};base.opacity=1;base.locked=false;
+            base.objects.slice().forEach(function(o){base.removeObject(o);});
+            specs.forEach(function(spec,index){
+                var tile=pieceTiles.tile(index);
+                if(!tile||!tile.image||tile.image.width>2048||tile.image.height>2048)throw new Error('秋季背景散图无效：'+spec.key);
+                var bg=new MapObject('背景 '+spec.col+','+spec.row);
+                bg.tile=tile;bg.x=spec.x;bg.y=spec.y;bg.width=spec.width;bg.height=spec.height;bg.rotation=0;bg.visible=true;
+                bg.setProperty('ghost.generatedBy',OWNER);
+                bg.setProperty('ghost.assetKey',spec.key);
+                bg.setProperty('ghost.backgroundPiece',spec.col+','+spec.row);
+                base.addObject(bg);
+            });
+            var corners=layer(map,PREFIX+'Corners');
+            if(corners){corners.locked=false;map.removeLayer(corners);}
             base.locked=true;setAutumnLayers(map,true);map.setProperty('ghost.theme','abandoned-v1');map.setProperty('ghost.mapTheme','autumn');map.setProperty('ghost.decorationRules',FORMAL_RULE_VERSION);
             group(map,'Edges');group(map,'Scatter');group(map,'Props');group(map,'RoomLeaves');group(map,'Grass');
+        }catch(e){failure=e;}
         });
+        // Tiled's macro callback reports uncaught JS errors without propagating
+        // them to the panel. Preserve the actual missing-resource message.
+        if(failure)throw failure;
     }
     function applyOriginalTheme(map) {
         requireMap(map);
@@ -197,7 +317,7 @@ var GhostTheme = (function () {
         }return mask;
     }
     function rules(map) {
-        var roots=resourceRoots(map),failures=[];
+        var projectRoot=projectThemeRoot(map),roots=projectRoot?[projectRoot,bundledRoot].filter(function(r){return !!r;}):resourceRoots(map),failures=[];
         function read(root){
             var path=FileInfo.joinPaths(root,'decoration-rules-formal.json');
             if(!File.exists(path))return null;
@@ -209,7 +329,7 @@ var GhostTheme = (function () {
         }
         var config=null;
         for(var i=0;i<roots.length&&!config;i++)config=read(roots[i]);
-        if(!config){var fallback=localBundle(map);if(fallback)config=read(fallback);}
+        if(!config&&!projectRoot){var fallback=localBundle(map);if(fallback)config=read(fallback);}
         if(!config)throw new Error('无法加载装饰规则，请安装完整主题素材。'+failures.join('；'));
         return config;
     }

@@ -41,15 +41,20 @@ def run(code,tmp,inputs):
 
 with tempfile.TemporaryDirectory(prefix='主题资源测试-') as tmp:
     tmp=Path(tmp);cases=[]
-    for kind in ['nested','absent','malformed','missing-image','bad-rules']:
+    for kind in ['nested','absent','malformed','missing-image','bad-rules','project-pinyin']:
         project=tmp/kind;folder=project/'maps/nested';folder.mkdir(parents=True)
         source=folder/'测试地图.tmx';doc=ET.parse(root/'Map_model/Map_1.tmx')
         for image in doc.iter('image'):
             image.set('source',str((root/'Map_model'/image.get('source')).resolve()))
         doc.write(source,encoding='utf-8')
-        if kind!='absent':shutil.copytree(bundle,project,dirs_exist_ok=True)
+        if kind=='project-pinyin':
+            images=project/'Map_img/themes/abandoned-formal';images.mkdir(parents=True)
+            for image in (root/'Map_img/themes/abandoned-formal').iterdir():
+                if image.is_file() and image.name.isascii():shutil.copy2(image,images/image.name)
+            shutil.copy2(root/'Map_img/map01.png',project/'Map_img/map01.png')
+        elif kind!='absent':shutil.copytree(bundle,project,dirs_exist_ok=True)
         if kind=='malformed':(project/'Map_tsx/abandoned-map03-formal.tsx').write_text('<broken')
-        if kind=='missing-image':(project/'Map_img/themes/abandoned-formal/background-corners.jpg').unlink()
+        if kind=='missing-image':(project/'Map_img/themes/abandoned-formal/backgroundcorners_01.png').unlink()
         if kind=='bad-rules':(project/'decoration-rules-formal.json').write_text('explanation, not JSON')
         cases.append({'kind':kind,'source':str(source),'saved':str(folder/'saved.tmx')})
     code='var cases='+json.dumps(cases)+';\n'+'''
@@ -63,8 +68,8 @@ tiled.assetOpened.connect(function(map){
  GhostTheme.applyOriginalTheme(map);GhostTheme.applyTheme(map);
  tiled.mapFormat('tmx').write(map,c.saved);
  var installed=FileInfo.joinPaths(FileInfo.path(c.source),'ghost-theme-assets-v1','Map_tsx/abandoned-decorations-formal.tsx');
- assert(File.exists(installed)===(c.kind!=='nested'),c.kind+': wrong fallback behavior');
- if(++done===cases.length)result('PORTABLE_TEST_OK nested, absent, malformed TSX, missing image, malformed JSON');
+ assert(File.exists(installed)===(c.kind!=='nested'&&c.kind!=='project-pinyin'),c.kind+': wrong fallback behavior');
+ if(++done===cases.length)result('PORTABLE_TEST_OK nested, absent, malformed TSX, missing image, malformed JSON, project pinyin assets without bundle copy');
  }catch(e){result('FAIL '+c.kind+': '+e.message+'\\n'+e.stack);}
 });
 '''
@@ -76,11 +81,12 @@ tiled.assetOpened.connect(function(map){
     assert str(plugin.parent) not in saved,'Saved map depends on editor installation'
     assert str(original) not in saved,'Saved map contains absolute fallback paths'
     shutil.rmtree(tmp/'absent')
-    run('''tiled.assetOpened.connect(function(map){
+    run('var expected='+json.dumps(str(moved/'saved.tmx'))+';\n'+'''tiled.assetOpened.connect(function(map){
+if(!map.isTileMap||map.fileName!==expected)return;
 try{
 GhostTheme.applyTheme(map);GhostTheme.generateEnvironment(map,{seed:2,density:12});
 if(GhostTheme.propCatalog(map).length!==7)throw new Error('Moved map lost images');
 result('PORTABLE_TEST_OK save, move folder, reopen and generate');
-}catch(e){result('FAIL '+e.message);}
+}catch(e){result('FAIL '+e.message+'\\n'+e.stack);}
 });
 ''',tmp,[str(moved/'saved.tmx')])
