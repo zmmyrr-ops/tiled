@@ -201,6 +201,72 @@ var GhostTheme = (function () {
         if(existing){if(!map.replaceTileset(existing,ts))throw new Error('更新背景散图失败');}else map.addTileset(ts);
         return ts;
     }
+    // Keep Road's binary occupancy, while replacing only invisible artwork.
+    // Remember each source tile so switching back restores its themed graphic.
+    function updateRoadDisplay(map,themeTileset) {
+        var road=layer(map,'Road');if(!road||!road.isTileLayer)return;
+        var name='ghost-road-fallback',markers=map.tilesets.filter(function(ts){return ts.name===name;})[0];
+        var previousMarkers=markers;
+        var checked=[],visible=[],markerPath=null,edit=road.edit();
+        function hasPixels(tile){
+            if(!tile)return false;
+            var index=checked.indexOf(tile);if(index>=0)return visible[index];
+            var image=tile.image,rect=tile.imageRect,found=false;
+            // Atlas tiles expose the full image; inspect only this tile's crop.
+            var left=Math.max(0,rect.x),top=Math.max(0,rect.y);
+            var right=image?Math.min(image.width,rect.x+rect.width):0,bottom=image?Math.min(image.height,rect.y+rect.height):0;
+            for(var y=top;y<bottom&&!found;y++)for(var x=left;x<right;x++){
+                if((image.pixel(x,y)>>>24)!==0){found=true;break;}
+            }
+            checked.push(tile);visible.push(found);return found;
+        }
+        function marker(sourceName,id){
+            if(!markerPath){
+                var root=projectThemeRoot(map),dir=root?FileInfo.joinPaths(root,'Map_img'):
+                    (map.fileName?FileInfo.path(map.fileName):headlessRoot);
+                markerPath=FileInfo.joinPaths(dir,'road-walkable-marker-v1.png');
+                if(!File.exists(markerPath)){
+                    var image=new Image(map.tileWidth,map.tileHeight);image.fill('#28b8d5');
+                    if(!image.save(markerPath))throw new Error('无法保存 Road 备用色块：'+markerPath);
+                }
+            }
+            var tile=markers&&markers.tiles.filter(function(t){return t.property('ghost.roadSourceTileset')===sourceName&&t.property('ghost.roadSourceId')===id;})[0];
+            if(tile&&tile.imageFileName===markerPath)return tile;
+            // Loaded embedded tilesets can be read-only. Build a replacement
+            // instead of mutating them, preserving tile IDs for undo/reopen.
+            if(!markers||markers===previousMarkers){
+                markers=new Tileset(name);markers.tileSize={width:map.tileWidth,height:map.tileHeight};
+                if(previousMarkers){var gaps=[];
+                    previousMarkers.tiles.slice().sort(function(a,b){return a.id-b.id;}).forEach(function(old){
+                        while(markers.nextTileId<old.id)gaps.push(markers.addTile());
+                        var copy=markers.addTile();copy.setProperties(old.properties());copy.imageFileName=markerPath;
+                    });
+                    if(gaps.length)markers.removeTiles(gaps);
+                }
+                retainedTilesets.push(markers);
+                tile=tile?markers.tile(tile.id):null;
+            }
+            if(!tile){tile=markers.addTile();tile.setProperty('ghost.roadSourceTileset',sourceName);tile.setProperty('ghost.roadSourceId',id);}
+            if(tile.imageFileName!==markerPath)tile.imageFileName=markerPath;
+            return tile;
+        }
+        for(var y=0;y<road.height;y++)for(var x=0;x<road.width;x++){
+            var current=road.tileAt(x,y);if(!current)continue;
+            var fromMarker=current.tileset.name===name;
+            var sourceName=fromMarker?current.property('ghost.roadSourceTileset'):current.tileset.name;
+            var id=fromMarker?current.property('ghost.roadSourceId'):current.id;
+            var isTheme=['map01','map01-original','abandoned-map01','abandoned-map03-formal','ghost-road-theme'].indexOf(sourceName)>=0;
+            var source=isTheme?themeTileset:map.tilesets.filter(function(ts){return ts.name===sourceName;})[0];
+            var original=source&&source.tile(id);
+            var replacement=hasPixels(original)?original:marker(isTheme?'ghost-road-theme':sourceName,id);
+            if(replacement!==current)edit.setTile(x,y,replacement,road.flagsAt(x,y));
+        }
+        if(markers!==previousMarkers){
+            if(previousMarkers){if(!map.replaceTileset(previousMarkers,markers))throw new Error('更新 Road 备用色块失败');}
+            else map.addTileset(markers);
+        }
+        edit.apply();
+    }
     function applyTheme(map) {
         requireMap(map);
         var failure=null;
@@ -214,6 +280,7 @@ var GhostTheme = (function () {
         if(!specs.length)throw new Error('秋季背景散图没有可显示的区域');
         var pieceTiles=syncPieceTileset(map,specs,pieceDir);
             old.forEach(function(t){if(t===walls)return;if(!map.replaceTileset(t,walls))throw new Error('替换图集失败');});if(map.tilesets.indexOf(decor)<0)map.addTileset(decor);
+            updateRoadDisplay(map,walls);
             // Old ground contains stray floor cells in the outer border. Reveal the new base there.
             var ground=layer(map,'Ground'),floors=layer(map,'Floor'),polys=[];
             if(floors)floors.objects.forEach(function(o){if(o.polygon&&o.polygon.length)polys.push(o.polygon.map(function(p){return{x:p.x+o.x,y:p.y+o.y};}));});
@@ -251,17 +318,22 @@ var GhostTheme = (function () {
     }
     function applyOriginalTheme(map) {
         requireMap(map);
-        var original=load(map,'map01-original.tsx');
-        var old=map.tilesets.filter(function(t){return t&&(t.name==='abandoned-map03-formal'||t.name==='abandoned-map01'||t.name==='map01');});
+        var failure=null;
         map.macro('切换到原始主题',function(){
+            try{
+            var original=load(map,'map01-original.tsx');
+            var old=map.tilesets.filter(function(t){return t&&(t.name==='abandoned-map03-formal'||t.name==='abandoned-map01'||t.name==='map01');});
             old.forEach(function(t){if(t===original)return;if(!map.replaceTileset(t,original))throw new Error('恢复原始图集失败');});
+            updateRoadDisplay(map,original);
             ['Edges','Scatter','RoomLeaves','Grass'].forEach(function(suffix){
                 var g=layer(map,PREFIX+suffix);if(!g||!g.isObjectLayer)return;
                 g.objects.slice().forEach(function(o){if(o.property('ghost.generatedBy')===OWNER)g.removeObject(o);});
             });
             setAutumnLayers(map,false);
             map.setProperty('ghost.mapTheme','original');
+            }catch(e){failure=e;}
         });
+        if(failure)throw failure;
     }
     function rng(seed) {var n=seed>>>0;return function(){n=(Math.imul(n,1664525)+1013904223)>>>0;return n/4294967296;};}
     function bounds(o) {

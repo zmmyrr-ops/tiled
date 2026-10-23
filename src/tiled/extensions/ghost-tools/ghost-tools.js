@@ -729,14 +729,18 @@ function validateMap() {
 //   1. 透明底（走廊 / 地图外）
 //   2. Floor 多边形 → 深色填充
 //   3. Collision 全部矩形（含四周边界）→ 距离变换填绿
+//      薄墙、以及长边不超过 4 格的小障碍整块填实（避免中间留洞）
+//      三面被围住的一格缺口补上；两面夹住的走廊 / 门洞保持畅通
 //   4. 4x 超采样预乘 alpha 降采样
 // ─────────────────────────────────────────────────────────────────────────────
 
-var MINIMAP_ALGO_VERSION = "2026-07-28-wallfill-v11";
+var MINIMAP_ALGO_VERSION = "2026-10-23-wallfill-v12";
 var MINIMAP_MAX_SIZE = 190;
 var MINIMAP_SUPERSAMPLE = 4;
 /** 薄墙判定：矩形短边缩放后 ≤ 此值（px）视为薄墙，整段填绿 */
 var MINIMAP_THIN_THRESH = 5;
+/** 小块障碍：长边不超过这么多格则整块填实，不按厚墙只描边 */
+var MINIMAP_SOLID_TILES = 4;
 /** 一个地图格子在小地图 hi-res 上的厚度（像素） */
 function minimapTileDepthHiRes(tileWidth, baseScale) {
     return Math.max(1, Math.round(tileWidth * baseScale * MINIMAP_SUPERSAMPLE));
@@ -845,13 +849,16 @@ function fillMaskRect(mask, w, h, rect) {
             mask[y][x] = 1;
 }
 
-function buildCollisionMask(w, h, collisionRects, scale, baseScale) {
+function buildCollisionMask(w, h, collisionRects, scale, baseScale, tileWidth) {
     var coll = createMask(w, h);
     var thin = createMask(w, h);
-    var i, rect, r, x0, y0, x1, y1, y, x, isThin;
+    var solidMax = tileWidth * MINIMAP_SOLID_TILES;
+    var i, rect, r, x0, y0, x1, y1, y, x, isSolid;
     for (i = 0; i < collisionRects.length; i++) {
         rect = collisionRects[i];
-        isThin = Math.min(rect.w, rect.h) * baseScale <= MINIMAP_THIN_THRESH;
+        // 薄墙，或长边不超过 4 格的小障碍：整块填实。地图边框又长又厚，仍只描边。
+        isSolid = Math.min(rect.w, rect.h) * baseScale <= MINIMAP_THIN_THRESH
+            || Math.max(rect.w, rect.h) <= solidMax;
         r = transformRect(rect, scale);
         x0 = clamp(Math.floor(r.x), 0, w);
         y0 = clamp(Math.floor(r.y), 0, h);
@@ -860,11 +867,72 @@ function buildCollisionMask(w, h, collisionRects, scale, baseScale) {
         for (y = y0; y < y1; y++) {
             for (x = x0; x < x1; x++) {
                 coll[y][x] = 1;
-                if (isThin) thin[y][x] = 1;
+                if (isSolid) thin[y][x] = 1;
             }
         }
     }
     return { coll: coll, thin: thin };
+}
+
+/**
+ * 补墙中间的一格缺口：某空像素在上下左右至少三个方向、一格距离内都是墙，就补成墙。
+ * 只有两面夹住的长走廊和门洞不会被补上。
+ */
+function closeCollisionPinholes(coll, thin, w, h, reach) {
+    var cap = reach + 1;
+    var left = [];
+    var right = [];
+    var up = [];
+    var down = [];
+    var y, x, d, n;
+    for (y = 0; y < h; y++) {
+        left[y] = [];
+        right[y] = [];
+        up[y] = [];
+        down[y] = [];
+    }
+    for (y = 0; y < h; y++) {
+        d = cap;
+        for (x = 0; x < w; x++) {
+            if (coll[y][x]) d = 0;
+            else if (d < cap) d++;
+            left[y][x] = d;
+        }
+        d = cap;
+        for (x = w - 1; x >= 0; x--) {
+            if (coll[y][x]) d = 0;
+            else if (d < cap) d++;
+            right[y][x] = d;
+        }
+    }
+    for (x = 0; x < w; x++) {
+        d = cap;
+        for (y = 0; y < h; y++) {
+            if (coll[y][x]) d = 0;
+            else if (d < cap) d++;
+            up[y][x] = d;
+        }
+        d = cap;
+        for (y = h - 1; y >= 0; y--) {
+            if (coll[y][x]) d = 0;
+            else if (d < cap) d++;
+            down[y][x] = d;
+        }
+    }
+    for (y = 0; y < h; y++) {
+        for (x = 0; x < w; x++) {
+            if (coll[y][x]) continue;
+            n = 0;
+            if (left[y][x] >= 1 && left[y][x] <= reach) n++;
+            if (right[y][x] >= 1 && right[y][x] <= reach) n++;
+            if (up[y][x] >= 1 && up[y][x] <= reach) n++;
+            if (down[y][x] >= 1 && down[y][x] <= reach) n++;
+            if (n >= 3) {
+                coll[y][x] = 1;
+                thin[y][x] = 1;
+            }
+        }
+    }
 }
 
 /**
@@ -907,7 +975,7 @@ function buildDistToOpen(coll, w, h) {
     return dist;
 }
 
-/** 墙填充：薄墙整段亮绿；厚墙从各开放面向内填 bandDepth 层 */
+/** 墙填充：薄墙和小块障碍整段亮绿；厚墙从各开放面向内填 bandDepth 层 */
 function buildWallFillMask(coll, thin, w, h, bandDepth) {
     var dist = buildDistToOpen(coll, w, h);
     var wall = createMask(w, h);
@@ -980,9 +1048,10 @@ function renderMinimapImage(outW, outH, floorPolys, collisionRects, baseScale, t
     for (i = 0; i < floorPolys.length; i++)
         fillMaskPolygon(floor, w, h, transformPoly(floorPolys[i], scale));
 
-    var collMask = buildCollisionMask(w, h, collisionRects, scale, baseScale);
+    var collMask = buildCollisionMask(w, h, collisionRects, scale, baseScale, tileWidth);
     var coll = collMask.coll;
     var thin = collMask.thin;
+    closeCollisionPinholes(coll, thin, w, h, bandDepth);
     var wallFill = buildWallFillMask(coll, thin, w, h, bandDepth);
 
     var hi = new Image(w, h);
