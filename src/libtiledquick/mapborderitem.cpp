@@ -56,7 +56,7 @@ QSGNode *MapBorderItem::updatePaintNode(QSGNode *node, QQuickItem::UpdatePaintNo
     vertex[3].set(0, height());
     vertex[4].set(0, 0);
     borderNode->markDirty(QSGNode::DirtyGeometry);
-    //
+
     auto material = static_cast<QSGFlatColorMaterial *>(borderNode->material());
     if (material->color() != mColor) {
         material->setColor(mColor);
